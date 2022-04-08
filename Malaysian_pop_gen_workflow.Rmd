@@ -27,7 +27,7 @@ knitr::opts_chunk$set(echo = TRUE)
 # 01_QC_&_TRIM
 
 File(s):  
-/g/data/pq84/malaria/Pk_clusters/scripts/01_QC_Trim/01_QC_Trim_batch*.pbs
+/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/01_QC_Trim/01_QC_Trim_batch*.pbs
 
 Version(s): 
 fastqc/0.11.7, parallel/20191022, multiqc/1.9, python3/3.8.5, TrimGalore/0.6.6 & cutadapt/3.5.
@@ -75,12 +75,12 @@ export PATH=$PATH:/home/588/jw1542/.local/bin # cutadapt_3.5 installed here
 
 echo "---------------------------------------"
 echo 'Change to working directory' 
-cd /g/data/pq84/malaria/Pk_clusters/
+cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/
 
 echo "---------------------------------------"
 echo "Set environment variable"
-QC_OUTDIR="/g/data/pq84/malaria/Pk_clusters/outputs/01_QC_Trim/fastqc"
-TRIM_OUTDIR="/g/data/pq84/malaria/Pk_clusters/outputs/01_QC_Trim/trimmed_fastq"
+QC_OUTDIR="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/01_QC_Trim/fastqc"
+TRIM_OUTDIR="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/01_QC_Trim/trimmed_fastq"
 
 echo "---------------------------------------"
 echo "QC"
@@ -103,7 +103,7 @@ echo "Finished"
 # 02_MAPPING
 
 File(s): 
-/g/data/pq84/malaria/Pk_clusters/scripts/02_Pk_mapping/batch*/Template.pbs
+/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/02_Pk_mapping/batch*/Template.pbs
 
 Version(s): 
 samtools/1.12 & bwa/0.7.17 
@@ -154,11 +154,11 @@ module load bwa/0.7.17
 
 echo "---------------------------------------"
 echo 'Change to working directory' 
-cd /g/data/pq84/malaria/Pk_clusters/outputs/01_QC_Trim/trimmed_fastq
+cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/01_QC_Trim/trimmed_fastq
 
 echo "---------------------------------------"
 echo 'Set environment vars'
-OUTDIR="/g/data/pq84/malaria/Pk_clusters/outputs/02_Mapping"
+OUTDIR="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/02_Mapping"
 INDEXTDIR="/g/data/pq84/malaria/data/ref_genomes/PKA1H1/fasta/strain_A1_H.1.Icor.fasta"
 
 echo "---------------------------------------"
@@ -173,7 +173,7 @@ echo "Finsihed!"
 # 03_BAM PRE PROCESSING
 
 File(s):  
-/g/data/pq84/malaria/Pk_clusters/scripts/03_Bam_pre-processing/batch*/Template.pbs
+/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/03_Bam_pre-processing/batch*/Template.pbs
 
 Version(s): 
 java/jdk-8.40 & samtools/1.12 & GATK/3.8.1
@@ -245,8 +245,8 @@ echo "---------------------------------------"
 echo "---------------------------------------"
 echo 'Change to working directory and set env variables'
 
-INDIR="/g/data/pq84/malaria/Pk_clusters/outputs/02_Mapping"
-OUTDIR="/g/data/pq84/malaria/Pk_clusters/outputs/03_Bam-pre"
+INDIR="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/02_Mapping"
+OUTDIR="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/03_Bam-pre"
 PICARD="/g/data/pq84/bin/picard/build/libs/picard.jar"
 GATK="/g/data/pq84/bin/GenomeAnalysisTK-3.8-1-0/GenomeAnalysisTK.jar"
 INDEXTDIR="/g/data/pq84/malaria/data/ref_genomes/PKA1H1/fasta/strain_A1_H.1.Icor.fasta"
@@ -349,7 +349,7 @@ echo 'Finished'
 ### HAPLOTYPE CALLER
 
 File(s):  
-/g/data/pq84/malaria/Pk_clusters/scripts/04_Variant_calling/batch*/Template.pbs
+/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/04_Variant_calling/batch*/Template.pbs
 
 Version(s): 
 java/jdk-8.40 & & GATK/3.8.1
@@ -390,8 +390,8 @@ module load java/jdk-8.40
 echo "---------------------------------------"
 echo "---------------------------------------"
 echo 'Change to working directory and set env variables'
-OUTDIR="/g/data/pq84/malaria/Pk_clusters/outputs/04_Variant_calling/haplotype_call"
-INDIR="/g/data/pq84/malaria/Pk_clusters/outputs/03_Bam-pre/final_bam"
+OUTDIR="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/haplotype_call"
+INDIR="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/03_Bam-pre/final_bam"
 PICARD="/g/data/pq84/bin/picard/build/libs/picard.jar"
 GATK="/g/data/pq84/bin/GenomeAnalysisTK-3.8-1-0/GenomeAnalysisTK.jar"
 INDEXTDIR="/g/data/pq84/malaria/data/ref_genomes/PKA1H1/fasta/strain_A1_H.1.Icor.fasta"
@@ -422,7 +422,7 @@ echo "--------------------------------------------------------------------------
 ### JOINT CALLING 
 
 File(s):  
-/g/data/pq84/malaria/Pk_clusters/scripts/04_Variant_calling/batch*/gatk_variant_calling.pbs
+/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/04_Variant_calling/batch*/gatk_variant_calling.pbs
 
 Version(s): 
 java/jdk-8.40 & & GATK/3.8.1
@@ -457,8 +457,8 @@ module load java/jdk-8.40
 echo "---------------------------------------"
 echo "---------------------------------------"
 echo 'Change to working directory and set env variables'
-OUTDIR="/g/data/pq84/malaria/Pk_clusters/outputs/04_Variant_calling/gatk"
-INDIR="/g/data/pq84/malaria/Pk_clusters/outputs/04_Variant_calling/haplotype_call"
+OUTDIR="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/gatk"
+INDIR="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/haplotype_call"
 PICARD="/g/data/pq84/bin/picard/build/libs/picard.jar"
 GATK="/g/data/pq84/bin/GenomeAnalysisTK-3.8-1-0/GenomeAnalysisTK.jar"
 INDEXTDIR="/g/data/pq84/malaria/data/ref_genomes/PKA1H1/fasta/strain_A1_H.1.Icor.fasta"
@@ -500,8 +500,8 @@ echo "Finished "
 ## BCFTOOLS
 
 File(s):  
-/g/data/pq84/malaria/Pk_clusters/scripts/04_Variant_calling/bcftools_variant_calling_*.pbs
-/g/data/pq84/malaria/Pk_clusters/scripts/04_Variant_calling/merge_bcftools_vcfs.pbs
+/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/04_Variant_calling/bcftools_variant_calling_*.pbs
+/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/04_Variant_calling/merge_bcftools_vcfs.pbs
 
 Version(s):
 bcftools/1.12
@@ -544,8 +544,8 @@ echo "---------------------------------------"
 echo "---------------------------------------"
 echo 'Change to working directory and set env variables'
 INDEXTDIR="/g/data/pq84/malaria/data/ref_genomes/PKA1H1/fasta/strain_A1_H.1.Icor.fasta"
-OUTDIR="/g/data/pq84/malaria/Pk_clusters/outputs/04_Variant_calling/bcftools"
-INDIR="/g/data/pq84/malaria/Pk_clusters/outputs/03_Bam-pre/final_bam"
+OUTDIR="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/bcftools"
+INDIR="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/03_Bam-pre/final_bam"
 
 echo "---------------------------------------------------------------------------------------------------------------------"
 echo "create input bam file list"
@@ -593,7 +593,7 @@ GATK="/g/data/pq84/bin/GenomeAnalysisTK-3.8-1-0/GenomeAnalysisTK.jar"
 echo "---------------------------------------"
 echo "---------------------------------------"
 echo 'Change to working directory and set env variables'
-cd /g/data/pq84/malaria/Pk_clusters/outputs/04_Variant_calling/bcftools
+cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/bcftools
 
 echo "---------------------------------------"
 echo "---------------------------------------"
@@ -615,7 +615,7 @@ echo "Finished "
 ## CREATING A CONSENSUS VCF 
 
 File(s):
-/g/data/pq84/malaria/Pk_clusters/scripts/04_Variant_calling/consensus_vcf.pbs
+/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/04_Variant_calling/consensus_vcf.pbs
 
 Version(s):
 bcftools/1.12 & R/4.1.0 
@@ -738,7 +738,7 @@ ordered_VCF %>%
 # 05_VARIANT_FILTERING
 
 File(s):  
-/g/data/pq84/malaria/Pk_clusters/scripts/05_Variant_filtering/Filter_variants.pbs
+/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/05_Variant_filtering/Filter_variants.pbs
 
 Version(s):
 java/jdk-8.40 & & GATK/3.8.1
@@ -757,7 +757,7 @@ Script:
 # 06_VARIANT_ANNOTATION
 
 File(s):  
-/g/data/pq84/malaria/Pk_clusters/scripts/06_Variant_annotation/annotate_variants.pbs
+/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Variant_annotation/annotate_variants.pbs
 
 Version(s):
 perl/5.26 & ensembl vep/105.0
