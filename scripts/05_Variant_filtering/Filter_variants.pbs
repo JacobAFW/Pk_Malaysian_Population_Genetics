@@ -1,0 +1,90 @@
+#!/bin/bash
+#PBS -P pq84
+#PBS -q normal 
+#PBS -N Filter_variants
+#PBS -j oe
+#PBS -m ae
+#PBS -l walltime=12:00:00,mem=50GB,ncpus=10
+#PBS -l storage=gdata/pq84+scratch/pq84
+#PBS -M jacob.westaway@menzies.edu.au
+
+echo "---------------------------------------"
+echo "PBS: Job identifier is $PBS_JOBID"
+echo "PBS: Job name is $PBS_JOBNAME"
+
+echo "---------------------------------------"
+echo "Define paths and load modules"
+module load java/jdk-8.40 
+
+echo "---------------------------------------"
+echo "Define paths and change to working directory"
+PICARD="/g/data/pq84/bin/picard/build/libs/picard.jar"
+INDEXTDIR="/g/data/pq84/malaria/data/ref_genomes/PKA1H1/fasta/strain_A1_H.1.Icor.fasta"
+GATK="/g/data/pq84/bin/GenomeAnalysisTK-3.8-1-0/GenomeAnalysisTK.jar"
+INDIR="/g/data/pq84/malaria/outputs/04_Variant_calling/consensus/"
+OUTDIR="/g/data/pq84/malaria/outputs/04_Variant_calling/filtered/"
+
+cd $INDIR
+
+echo "---------------------------------------"
+echo 'Correct bcftools introduced changes to make java happy'
+echo "---------------------------------------"
+cat Consensus.vcf | sed 's/MQ=nan/MQ=NaN/g' > Consensus_fixed.vcf
+
+echo "---------------------------------------"
+echo 'SUBSET TO VARIANT TYPE'
+echo "---------------------------------------"
+
+echo "---------------------------------------"
+echo "SNPs"
+
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T SelectVariants \
+    -R $INDEXTDIR \
+    -V Consensus_fixed.vcf \
+    -selectType SNP \
+    -o $OUTDIR/GVCFall_SNPs.vcf
+
+echo "---------------------------------------"
+echo "Indels"
+
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T SelectVariants \
+    -R $INDEXTDIR \
+    -V Consensus_fixed.vcf \
+    -selectType INDEL \
+    -o $OUTDIR/GVCFall_INDELs.vcf
+
+echo "---------------------------------------"
+echo 'FILTER'
+echo "---------------------------------------"
+
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T VariantFiltration \
+    -V $INDIR/Consensus_fixed.vcf \
+    -R $INDEXTDIR \
+    -filter "QD < 20.0" -filterName "QD2" \
+    -filter "FS > 2.0" -filterName "FS60" \
+    -filter "MQ < 59.0" -filterName "MQ40" \
+    -o $OUTDIR/PK_consensus_FILTERED.vcf
+
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T VariantFiltration \
+    -V $OUTDIR/GVCFall_SNPs.vcf \
+    -R $INDEXTDIR \
+    -filter "QD < 20.0" -filterName "QD2" \
+    -filter "FS > 2.0" -filterName "FS60" \
+    -filter "MQ < 59.0" -filterName "MQ40" \
+    -o $OUTDIR/FILTERED_SNPs.vcf
+
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T VariantFiltration \
+    -V $OUTDIR/GVCFall_INDELs.vcf \
+    -R $INDEXTDIR \
+    -filter "QD < 20.0" -filterName "QD2" \
+    -filter "FS > 2.0" -filterName "FS60" \
+    -filter "MQ < 59.0" -filterName "MQ40" \
+    -o $OUTDIR/FILTERED_INDELs.vcf
+
+echo "---------------------------------------"
+echo "Finsihed"

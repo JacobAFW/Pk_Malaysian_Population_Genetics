@@ -1,0 +1,120 @@
+#!/bin/bash
+#PBS -P pq84
+#PBS -q normal 
+#PBS -N Bam_pre-pro
+#PBS -j oe
+#PBS -m ae
+#PBS -l walltime=12:00:00,mem=50GB,ncpus=10
+#PBS -l storage=gdata/pq84+scratch/pq84
+#PBS -M jacob.westaway@menzies.edu.au
+
+echo "---------------------------------------"
+echo "PBS: Job identifier is $PBS_JOBID"
+echo "PBS: Job name is $PBS_JOBNAME"
+
+echo "---------------------------------------"
+echo "Define paths and load modules"
+module load java/jdk-8.40 
+module load samtools/1.12 
+
+echo "---------------------------------------"
+echo "---------------------------------------"
+echo 'Change to working directory and set env variables'
+
+INDIR="/g/data/pq84/malaria/Pk_clusters/outputs/02_Mapping"
+OUTDIR="/g/data/pq84/malaria/Pk_clusters/outputs/03_Bam-pre"
+PICARD="/g/data/pq84/bin/picard/build/libs/picard.jar"
+GATK="/g/data/pq84/bin/GenomeAnalysisTK-3.8-1-0/GenomeAnalysisTK.jar"
+INDEXTDIR="/g/data/pq84/malaria/data/ref_genomes/PKA1H1/fasta/strain_A1_H.1.Icor.fasta"
+INTERVALS="/g/data/pq84/malaria/data/ref_genomes/PKA1H1/strain_A1_H.1.Icor.fasta.bed"
+KNOWNSITES="/g/data/pq84/malaria/data/ref_genomes/variants"
+
+echo "---------------------------------------"
+echo 'Sort and Index bam files'
+
+cd $INDIR
+mkdir sorted
+
+samtools sort -@ 10 SAMPLE.bam > sorted/SAMPLE.sorted.bam
+samtools index -@ 10 sorted/SAMPLE.sorted.bam
+
+echo "---------------------------------------"
+echo 'MarkDuplicates'
+
+java -Djava.iodir=$PBS_JOBFS -jar $PICARD \
+    MarkDuplicates AS=TRUE VALIDATION_STRINGENCY=LENIENT \
+    I=$INDIR/sorted/SAMPLE.sorted.bam \
+    O=$OUTDIR/SAMPLE.dupmarked.bam \
+    M=$OUTDIR/SAMPLE_picard_metrics_file.txt 
+
+echo "---------------------------------------"
+echo 'Change header @RG and index' 
+
+samtools view -H $OUTDIR/SAMPLE.dupmarked.bam | \
+    sed 's,^@RG.*,@RG\tID:SAMPLE\tSM:SAMPLE\tLB:None\tPL:Illumina,g' |  \
+    samtools reheader - $OUTDIR/SAMPLE.dupmarked.bam > $OUTDIR/SAMPLE.dupmarked.reheader.bam
+
+samtools index $OUTDIR/SAMPLE.dupmarked.reheader.bam 
+
+echo "---------------------------------------"
+echo 'RealignerTargetCreator'
+
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T RealignerTargetCreator \
+    -nt 10 \
+    -R $INDEXTDIR \
+    -I $OUTDIR/SAMPLE.dupmarked.reheader.bam \
+    --intervals $INTERVALS \
+    -known $KNOWNSITES/TRUE_INDELs.vcf \
+    -o $OUTDIR/SAMPLE.dupmarked.realigner.intervals
+
+echo "---------------------------------------"
+echo 'IndelRealigner' 
+
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T IndelRealigner \
+    --consensusDeterminationModel KNOWNS_ONLY \
+    -LOD 0.4 \
+    -R $INDEXTDIR \
+    -I $OUTDIR/SAMPLE.dupmarked.reheader.bam \
+    --intervals $INTERVALS \
+    -known $KNOWNSITES/TRUE_INDELs.vcf \
+    -targetIntervals $OUTDIR/SAMPLE.dupmarked.realigner.intervals \
+    -o $OUTDIR/SAMPLE.dupmarked.realigned.bam
+
+echo "---------------------------------------"
+echo 'BaseRecalibrator - create recal table' 
+
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T BaseRecalibrator \
+    -R $INDEXTDIR \
+    -I $OUTDIR/SAMPLE.dupmarked.realigned.bam \
+    --intervals $INTERVALS \
+    -knownSites $KNOWNSITES/TRUE_consensus.vcf \
+    -o $OUTDIR/SAMPLE.dupmarked.realigned.recal.table
+
+echo "---------------------------------------"
+echo 'PrintReads - get recal reads' 
+
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK  \
+    -T PrintReads \
+    -R $INDEXTDIR \
+    --intervals $INTERVALS \
+    -I $OUTDIR/SAMPLE.dupmarked.realigned.bam \
+    -BQSR $OUTDIR/SAMPLE.dupmarked.realigned.recal.table \
+    -o $OUTDIR/final_bam/SAMPLE.dupmarked.realigned.recal.bam
+
+echo "---------------------------------------"
+echo 'Clean up' 
+
+rm -f $OUTDIR/SAMPLE.dupmarked.b*
+rm -f $OUTDIR/SAMPLE.dupmarked.realigned.recal.table
+rm -f $OUTDIR/SAMPLE.dupmarked.realigned.b* 
+rm -f $OUTDIR/SAMPLE.dupmarked.realigner.intervals
+rm -f $OUTDIR/SAMPLE.dupmarked.reheader.b*
+rm -f $OUTDIR/SAMPLE_picard_metrics_file.txt 
+
+echo "---------------------------------------"
+echo 'Finished' 
+
+
