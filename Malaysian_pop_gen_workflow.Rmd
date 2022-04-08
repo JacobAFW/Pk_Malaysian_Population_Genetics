@@ -1,0 +1,783 @@
+---
+title: "Workflow for population geneitcs of plasmodium knowlesi in Malaysia"
+author: "Jacob Westaway"
+date: "Last updated on `r Sys.Date()`"
+output:
+  pdf_document:
+    toc: yes
+    toc_depth: 1
+  html_document:
+    df_print: paged
+    toc: yes
+header-includes:
+  \usepackage{float}
+  \floatplacement{figure}{H}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+\newpage
+
+# About.
+ - This workflow is for a project exploring the population genetics of Plasmodium Knowlesi in Malaysia.
+
+
+# 01_QC_&_TRIM
+
+File(s):  
+/g/data/pq84/malaria/Pk_clusters/scripts/01_QC_Trim/01_QC_Trim_batch*.pbs
+
+Version(s): 
+fastqc/0.11.7, parallel/20191022, multiqc/1.9, python3/3.8.5, TrimGalore/0.6.6 & cutadapt/3.5.
+
+Submission: 
+Several scripts with several samples per script (functions exectuted using loops).
+
+Notes: 
+Need to have the "paired" argument of trim_galore at the end, despite what the documentation says.
+Next was quality and adaptor trimming, which was executed with [Trim_Galore](https://github.com/FelixKrueger/TrimGalore/blob/master/Docs/Trim_Galore_User_Guide.md), a wrapper around Cutadapt and FastQC written by Felix Krueger.
+Trim_Galore was used in combination with [GNU parallel](https://www.gnu.org/software/parallel/parallel_tutorial.html), which is needed to handle the multiple file inputs.
+
+    -j16 - threads
+    --xapply - runs each pair (if not included then Trim_Galore will run every combination)
+    --illumina - illumina adapters to be removed in trimming
+    --fastqc  - trim_galore to perform QC on trimmed files
+    --paired - paired (forward and reverse) file input
+    ::: - specifies input files to parallel
+
+Script:
+
+```{R,eval=F}
+#!/bin/bash
+#PBS -P pq84
+#PBS -q normal 
+#PBS -N QC_Trim
+#PBS -j oe
+#PBS -m ae
+#PBS -l walltime=48:00:00,mem=168GB,ncpus=21
+#PBS -l storage=gdata/pq84+scratch/pq84
+#PBS -M jacob.westaway@menzies.edu.au
+
+echo "---------------------------------------"
+echo "PBS: Job identifier is $PBS_JOBID"
+echo "PBS: Job name is $PBS_JOBNAME"
+
+echo "---------------------------------------"
+echo "Create paths to required software or load modules"
+module load fastqc/0.11.7
+module load parallel/20191022 
+module load multiqc/1.9 
+module load python3/3.8.5
+export PATH=$PATH:/g/data/pq84/bin/TrimGalore-0.6.6/ # trim galore wrapper for fastq and cutadapt
+export PATH=$PATH:/home/588/jw1542/.local/bin # cutadapt_3.5 installed here
+
+echo "---------------------------------------"
+echo 'Change to working directory' 
+cd /g/data/pq84/malaria/Pk_clusters/
+
+echo "---------------------------------------"
+echo "Set environment variable"
+QC_OUTDIR="/g/data/pq84/malaria/Pk_clusters/outputs/01_QC_Trim/fastqc"
+TRIM_OUTDIR="/g/data/pq84/malaria/Pk_clusters/outputs/01_QC_Trim/trimmed_fastq"
+
+echo "---------------------------------------"
+echo "QC"
+fastqc -t 20 -o $QC_OUTDIR data/*.fastq.gz
+multiqc $QC_OUTDIR/. -o $QC_OUTDIR
+
+echo "---------------------------------------"
+echo "Trim"
+parallel -j20 --xapply trim_galore --illumina --fastqc -o $TRIM_OUTDIR --paired ::: data/*1.fastq.gz ::: data/*2.fastq.gz
+
+echo "---------------------------------------"
+echo "QC on Trimmed"
+multiqc $TRIM_OUTDIR/. -o $TRIM_OUTDIR
+
+echo "---------------------------------------"
+echo "Finished"
+```
+
+
+# 02_MAPPING
+
+File(s): 
+/g/data/pq84/malaria/Pk_clusters/scripts/02_Pk_mapping/batch*/Template.pbs
+
+Version(s): 
+samtools/1.12 & bwa/0.7.17 
+
+Submission: 
+PBS job for each sample. Create a Template.pbs file and sample_names.txt file, and then run the following:
+for i in $(cat sample_names.txt); do sed s/SAMPLE/$i/g Template.pbs > ${i}.pbs; done
+for file in *L4.pbs; do qsub $file; done
+
+Notes:
+Need to sort output from BWA by the read name (this is not compatible with indexing of the BAM file but is required for subsequent steps).
+Reference genome must be indexed - can use `bwa index -p PKA1H1_index -a is strain_A1_H.1.Icor.fasta`.
+Had to run the batch jobs (job per sample) in two batches.
+
+BWA 
+    M - Mark shorter split hits as secondary (for Picard compatibility).
+    R - Complete read group header line. ’\t’ can be used in STR and will be converted to a TAB in the output SAM/BAM. The read group ID will be attached to every read in the output. An example is ’@RG\tID:foo\tSM:bar’. 
+
+Samtools view 
+    u - Output uncompressed BAM. This option saves time spent on compression/decompression and is thus preferred when the output is piped to another samtools command.
+    S - sam file compatibility.
+
+Samtools sort 
+    n - Sort by name.
+    o - Write final sorted output to FILE (rather than standard output).
+
+Script:
+
+```{R,eval=F}
+#!/bin/bash
+#PBS -P pq84
+#PBS -q normal 
+#PBS -N Align_to_Pk
+#PBS -j oe
+#PBS -m ae
+#PBS -l walltime=4:00:00,mem=20GB,ncpus=10
+#PBS -l storage=gdata/pq84+scratch/pq84
+#PBS -M jacob.westaway@menzies.edu.au
+
+echo "---------------------------------------"
+echo "PBS: Job identifier is $PBS_JOBID"
+echo "PBS: Job name is $PBS_JOBNAME"
+
+echo "---------------------------------------"
+echo "Define paths and load modules"
+module load samtools/1.12  
+module load bwa/0.7.17 
+
+echo "---------------------------------------"
+echo 'Change to working directory' 
+cd /g/data/pq84/malaria/Pk_clusters/outputs/01_QC_Trim/trimmed_fastq
+
+echo "---------------------------------------"
+echo 'Set environment vars'
+OUTDIR="/g/data/pq84/malaria/Pk_clusters/outputs/02_Mapping"
+INDEXTDIR="/g/data/pq84/malaria/data/ref_genomes/PKA1H1/fasta/strain_A1_H.1.Icor.fasta"
+
+echo "---------------------------------------"
+echo 'Exectue alignment with bwa to hg and sort to bam'
+
+bwa mem -t 10 -M -R "@RG\tID:SAMPLE\tPL:ILLUMINA" $INDEXTDIR SAMPLE_1_val_1.fq.gz SAMPLE_2_val_2.fq.gz | samtools view -u -S - | samtools sort -n -o $OUTDIR/SAMPLE.bam
+
+echo "---------------------------------------"
+echo "Finsihed!"
+```
+
+# 03_BAM PRE PROCESSING
+
+File(s):  
+/g/data/pq84/malaria/Pk_clusters/scripts/03_Bam_pre-processing/batch*/Template.pbs
+
+Version(s): 
+java/jdk-8.40 & samtools/1.12 & GATK/3.8.1
+
+Submission:
+PBS job for each sample.
+
+Notes:
+
+Why GATK have removed indel realignment from their software - https://github.com/broadinstitute/gatk-docs/blob/master/blog-2012-to-2019/2016-06-21-Changing_workflows_around_calling_SNPs_and_indels.md?id=7847
+Why we decide to use GATK3 so that we can include it - "These changes are about improving efficiency in the face of incremental returns." & "influences should be subtle for high quality data but make a difference for lower quality data" - although QC suggests our data is high quality we cannot always gurantee that this will be the case and we want these incremental returns in accruacy. There appears to be no problem including indel realignment, except efficiency, and I am willing to sacrifice this (to an extent) to get peace of mind and reduce the potential for false positive mismatches around indels, in turn improving the base quality scrore recalibration.
+Poor quality data without indel realignment should result in regions with poor mapping quality post BQSR where variants cannot be called. But if the quality is still above the threshold for variant calling, you could call false positive variants. So, the hope of GATK is that BQSR will catch the misaligned reads and minimise the number of false positives, and that with greater read quality and depth (~ x30) you are more likely to pick up on a poorly aligned read that will end up having a poor BQSR score that can be ignored. Obviously, this is less likely to be the case if you have lower quality or depth, and you can still end up with some false positives. This is what needs to be weighed up - efficiency vs quality. Thus, I think the decision should be made case by case, and in our case, where are working in the context of discovery with little to no need to scale, I think we want to guarantee quality.
+
+To download GATK 3.8 - `wget https://storage.googleapis.com/gatk-software/package-archive/gatk/GenomeAnalysisTK-3.8-1-0-gf15c1c3ef.tar.bz2`
+
+GATK requires that the reference genome has .dict and .fai files:
+  'java -jar picard.jar CreateSequenceDictionary R=strain_A1_H.1.Icor.fasta'
+  'samtools faidx strain_A1_H.1.Icor.fasta'
+
+GATK is run through Java, which requires compatible [jdk and jre](https://www.guru99.com/difference-between-jdk-jre-jvm.html#:~:text=The%20full%20form%20of%20JDK%20is%20Java%20Development,also%20platform%20dependent%2C%20but%20JVM%20is%20platform%20independent. installations).
+Java uses a [Picard](https://github.com/broadinstitute/picard) jar file to run GATK.
+
+
+GATK does not provide support for previous iterations of their software, so any additional information required needs to be obtained using `--help`.
+Arguments:
+  - T - GATK tool
+  - intervals - genomic intervals (i.e. contigs and their base positon - BED file)
+  - known - known **indels** - VCF file
+  - knownsites - known **variants** - VCF file
+  - consensusDeterminationModel - model for computing possible alternates - KNOWNS_ONLY uses known indels only
+  - LOD - threshold for cleaning above
+  - ERC - mode for emitting experimental reference confidence scores 
+  - minPruning - minimum allowed pruning factor in assembly graph - paths with < x supporting kmers are pruned for the graph
+  - maxNumHaplotypesInPopulation - self explanatory - number needs to be increased when calling organisms with high heterozygosity
+  - variant_index_type - type of index creator
+  - variant_index_parameter - to be passed to the VCF index creator
+  - contamination - fraction of contamination in seq data to aggresively remove 
+  - G - annotation
+  - hets - heterozygosity value to be used to compute likelihoods 
+  - indelHeterozygosity - heterozygosity value to be used for variant calling
+
+Calculate approximate heterozygosity (needed for -hets and -indelHeterozygosity arguments):
+
+Approximate heterozygosity = ((number of sites with Indels)/(Total number of sites))*(1-(average number of homozygous genotypes per site)/(total number of individuals))
+
+Script:
+
+```{R,eval=F}
+#!/bin/bash
+#PBS -P pq84
+#PBS -q normal 
+#PBS -N Bam_pre-pro
+#PBS -j oe
+#PBS -m ae
+#PBS -l walltime=12:00:00,mem=50GB,ncpus=10
+#PBS -l storage=gdata/pq84+scratch/pq84
+#PBS -M jacob.westaway@menzies.edu.au
+
+echo "---------------------------------------"
+echo "PBS: Job identifier is $PBS_JOBID"
+echo "PBS: Job name is $PBS_JOBNAME"
+
+echo "---------------------------------------"
+echo "Define paths and load modules"
+module load java/jdk-8.40 
+module load samtools/1.12 
+
+echo "---------------------------------------"
+echo "---------------------------------------"
+echo 'Change to working directory and set env variables'
+
+INDIR="/g/data/pq84/malaria/Pk_clusters/outputs/02_Mapping"
+OUTDIR="/g/data/pq84/malaria/Pk_clusters/outputs/03_Bam-pre"
+PICARD="/g/data/pq84/bin/picard/build/libs/picard.jar"
+GATK="/g/data/pq84/bin/GenomeAnalysisTK-3.8-1-0/GenomeAnalysisTK.jar"
+INDEXTDIR="/g/data/pq84/malaria/data/ref_genomes/PKA1H1/fasta/strain_A1_H.1.Icor.fasta"
+INTERVALS="/g/data/pq84/malaria/data/ref_genomes/PKA1H1/strain_A1_H.1.Icor.fasta.bed"
+KNOWNSITES="/g/data/pq84/malaria/data/ref_genomes/variants"
+
+echo "---------------------------------------"
+echo 'Sort and Index bam files'
+
+cd $INDIR
+mkdir sorted
+
+samtools sort -@ 10 SAMPLE.bam > sorted/SAMPLE.sorted.bam
+samtools index -@ 10 sorted/SAMPLE.sorted.bam
+
+echo "---------------------------------------"
+echo 'MarkDuplicates'
+
+java -Djava.iodir=$PBS_JOBFS -jar $PICARD \
+    MarkDuplicates AS=TRUE VALIDATION_STRINGENCY=LENIENT \
+    I=$INDIR/sorted/SAMPLE.sorted.bam \
+    O=$OUTDIR/SAMPLE.dupmarked.bam \
+    M=$OUTDIR/SAMPLE_picard_metrics_file.txt 
+
+echo "---------------------------------------"
+echo 'Change header @RG and index' 
+
+samtools view -H $OUTDIR/SAMPLE.dupmarked.bam | \
+    sed 's,^@RG.*,@RG\tID:SAMPLE\tSM:SAMPLE\tLB:None\tPL:Illumina,g' |  \
+    samtools reheader - $OUTDIR/SAMPLE.dupmarked.bam > $OUTDIR/SAMPLE.dupmarked.reheader.bam
+
+samtools index $OUTDIR/SAMPLE.dupmarked.reheader.bam 
+
+echo "---------------------------------------"
+echo 'RealignerTargetCreator'
+
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T RealignerTargetCreator \
+    -nt 10 \
+    -R $INDEXTDIR \
+    -I $OUTDIR/SAMPLE.dupmarked.reheader.bam \
+    --intervals $INTERVALS \
+    -known $KNOWNSITES/TRUE_INDELs.vcf \
+    -o $OUTDIR/SAMPLE.dupmarked.realigner.intervals
+
+echo "---------------------------------------"
+echo 'IndelRealigner' 
+
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T IndelRealigner \
+    --consensusDeterminationModel KNOWNS_ONLY \
+    -LOD 0.4 \
+    -R $INDEXTDIR \
+    -I $OUTDIR/SAMPLE.dupmarked.reheader.bam \
+    --intervals $INTERVALS \
+    -known $KNOWNSITES/TRUE_INDELs.vcf \
+    -targetIntervals $OUTDIR/SAMPLE.dupmarked.realigner.intervals \
+    -o $OUTDIR/SAMPLE.dupmarked.realigned.bam
+
+echo "---------------------------------------"
+echo 'BaseRecalibrator - create recal table' 
+
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T BaseRecalibrator \
+    -R $INDEXTDIR \
+    -I $OUTDIR/SAMPLE.dupmarked.realigned.bam \
+    --intervals $INTERVALS \
+    -knownSites $KNOWNSITES/TRUE_consensus.vcf \
+    -o $OUTDIR/SAMPLE.dupmarked.realigned.recal.table
+
+echo "---------------------------------------"
+echo 'PrintReads - get recal reads' 
+
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK  \
+    -T PrintReads \
+    -R $INDEXTDIR \
+    --intervals $INTERVALS \
+    -I $OUTDIR/SAMPLE.dupmarked.realigned.bam \
+    -BQSR $OUTDIR/SAMPLE.dupmarked.realigned.recal.table \
+    -o $OUTDIR/final_bam/SAMPLE.dupmarked.realigned.recal.bam
+
+echo "---------------------------------------"
+echo 'Clean up' 
+
+rm -f $OUTDIR/SAMPLE.dupmarked.b*
+rm -f $OUTDIR/SAMPLE.dupmarked.realigned.recal.table
+rm -f $OUTDIR/SAMPLE.dupmarked.realigned.b* 
+rm -f $OUTDIR/SAMPLE.dupmarked.realigner.intervals
+rm -f $OUTDIR/SAMPLE.dupmarked.reheader.b*
+rm -f $OUTDIR/SAMPLE_picard_metrics_file.txt 
+
+echo "---------------------------------------"
+echo 'Finished' 
+```
+
+# 04_VARIANT_CALLING 
+
+## GATK
+
+### HAPLOTYPE CALLER
+
+File(s):  
+/g/data/pq84/malaria/Pk_clusters/scripts/04_Variant_calling/batch*/Template.pbs
+
+Version(s): 
+java/jdk-8.40 & & GATK/3.8.1
+
+Submission:
+PBS job for each sample.
+
+Notes:
+ - nt - number of threads
+ - ERC - mode for emitting reference confidence scores
+ - minPruning - the number of samples that must pass the pruning threshold
+ - maxNumHaplotypesInPopulation - each haplotype considered requires n evaluations if there are n reads across all samples, so this argument defines a specific number to control this. Dropping this too low can result in missing variants.
+ - max_alternate_alleles - maximum number of alternate alleles to genotype
+ - contamination - fraction of contamination in sequencing data to aggresively remove. If > 0, the caller will remove contamination through biased down sampling of the reads
+ - variant_index_type LINEAR & variant_index_parameter 128000 - old dodgey workaround that GATK used for index compression. Newer versions no longer need this 
+
+Script:
+
+```{R,eval=F}
+#!/bin/bash
+#PBS -P pq84
+#PBS -q normal 
+#PBS -N Haplotype_call
+#PBS -j oe
+#PBS -m ae
+#PBS -l walltime=12:00:00,mem=20GB,ncpus=10
+#PBS -l storage=gdata/pq84+scratch/pq84
+#PBS -M jacob.westaway@menzies.edu.au
+
+echo "---------------------------------------"
+echo "PBS: Job identifier is $PBS_JOBID"
+echo "PBS: Job name is $PBS_JOBNAME"
+
+echo "---------------------------------------"
+echo "Define paths and load modules"
+module load java/jdk-8.40 
+
+echo "---------------------------------------"
+echo "---------------------------------------"
+echo 'Change to working directory and set env variables'
+OUTDIR="/g/data/pq84/malaria/Pk_clusters/outputs/04_Variant_calling/haplotype_call"
+INDIR="/g/data/pq84/malaria/Pk_clusters/outputs/03_Bam-pre/final_bam"
+PICARD="/g/data/pq84/bin/picard/build/libs/picard.jar"
+GATK="/g/data/pq84/bin/GenomeAnalysisTK-3.8-1-0/GenomeAnalysisTK.jar"
+INDEXTDIR="/g/data/pq84/malaria/data/ref_genomes/PKA1H1/fasta/strain_A1_H.1.Icor.fasta"
+INTERVALS="/g/data/pq84/malaria/data/ref_genomes/PKA1H1/strain_A1_H.1.Icor.fasta.bed"
+
+echo "---------------------------------------------------------------------------------------------------------------------"
+echo "GATK"
+echo "---------------------------------------------------------------------------------------------------------------------"
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T HaplotypeCaller \
+    -ERC GVCF \
+    --minPruning 3 \
+    --maxNumHaplotypesInPopulation 200 \
+    --max_alternate_alleles 3 \
+    --variant_index_type LINEAR \
+    --variant_index_parameter 128000 \
+    -contamination 0.0 \
+    -G Standard \
+    -R $INDEXTDIR \
+    -I $INDIR/SAMPLE.dupmarked.realigned.recal.bam \
+    -o $OUTDIR/SAMPLE.dupmarked.realigned.recal.g.vcf.gz
+
+echo "---------------------------------------------------------------------------------------------------------------------"
+echo "FINISHED"
+echo "---------------------------------------------------------------------------------------------------------------------"
+```
+
+### JOINT CALLING 
+
+File(s):  
+/g/data/pq84/malaria/Pk_clusters/scripts/04_Variant_calling/batch*/gatk_variant_calling.pbs
+
+Version(s): 
+java/jdk-8.40 & & GATK/3.8.1
+
+Submission: 
+Single pbs script.
+
+Notes:
+`ls *gz | tr '\n' ' ' | sed 's/ / -V /g'` to get the file list
+
+Script:
+
+```{R,eval=F}
+#!/bin/bash
+#PBS -P pq84
+#PBS -q normal 
+#PBS -N Variant_calling_gatk
+#PBS -j oe
+#PBS -m ae
+#PBS -l walltime=48:00:00,mem=128GB,ncpus=16
+#PBS -l storage=gdata/pq84+scratch/pq84
+#PBS -M jacob.westaway@menzies.edu.au
+
+echo "---------------------------------------"
+echo "PBS: Job identifier is $PBS_JOBID"
+echo "PBS: Job name is $PBS_JOBNAME"
+
+echo "---------------------------------------"
+echo "Define paths and load modules"
+module load java/jdk-8.40 
+
+echo "---------------------------------------"
+echo "---------------------------------------"
+echo 'Change to working directory and set env variables'
+OUTDIR="/g/data/pq84/malaria/Pk_clusters/outputs/04_Variant_calling/gatk"
+INDIR="/g/data/pq84/malaria/Pk_clusters/outputs/04_Variant_calling/haplotype_call"
+PICARD="/g/data/pq84/bin/picard/build/libs/picard.jar"
+GATK="/g/data/pq84/bin/GenomeAnalysisTK-3.8-1-0/GenomeAnalysisTK.jar"
+INDEXTDIR="/g/data/pq84/malaria/data/ref_genomes/PKA1H1/fasta/strain_A1_H.1.Icor.fasta"
+INTERVALS="/g/data/pq84/malaria/data/ref_genomes/PKA1H1/strain_A1_H.1.Icor.fasta.bed"
+
+cd $INDIR
+
+echo "---------------------------------------------------------------------------------------------------------------------"
+echo "GATK"
+echo "---------------------------------------------------------------------------------------------------------------------"
+
+echo "---------------------------------------------------------------------------------------------------------------------"
+echo "Combine GVCFs"
+
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T CombineGVCFs \
+    -R $INDEXTDIR \
+    -V ERR2214837.dupmarked.realigned.recal.g.vcf.gz -V ERR2214838.dupmarked.realigned.recal.g.vcf.gz -V ERR2214839.dupmarked.realigned.recal.g.vcf.gz -V ERR2214840.dupmarked.realigned.recal.g.vcf.gz -V ERR2214841.dupmarked.realigned.recal.g.vcf.gz -V ERR2214842.dupmarked.realigned.recal.g.vcf.gz -V ERR2214843.dupmarked.realigned.recal.g.vcf.gz -V ERR2214844.dupmarked.realigned.recal.g.vcf.gz -V ERR2214845.dupmarked.realigned.recal.g.vcf.gz -V ERR2214846.dupmarked.realigned.recal.g.vcf.gz -V ERR2214847.dupmarked.realigned.recal.g.vcf.gz -V ERR2214848.dupmarked.realigned.recal.g.vcf.gz -V ERR2214849.dupmarked.realigned.recal.g.vcf.gz -V ERR2214850.dupmarked.realigned.recal.g.vcf.gz -V ERR2214851.dupmarked.realigned.recal.g.vcf.gz -V ERR2214852.dupmarked.realigned.recal.g.vcf.gz -V ERR2214853.dupmarked.realigned.recal.g.vcf.gz -V ERR2214854.dupmarked.realigned.recal.g.vcf.gz -V ERR2214855.dupmarked.realigned.recal.g.vcf.gz -V ERR2214856.dupmarked.realigned.recal.g.vcf.gz -V ERR2214857.dupmarked.realigned.recal.g.vcf.gz -V ERR274221.dupmarked.realigned.recal.g.vcf.gz -V ERR274222.dupmarked.realigned.recal.g.vcf.gz -V ERR274224.dupmarked.realigned.recal.g.vcf.gz -V ERR274225.dupmarked.realigned.recal.g.vcf.gz -V ERR3374031.dupmarked.realigned.recal.g.vcf.gz -V ERR3374032.dupmarked.realigned.recal.g.vcf.gz -V ERR3374033.dupmarked.realigned.recal.g.vcf.gz -V ERR3374034.dupmarked.realigned.recal.g.vcf.gz -V ERR3374035.dupmarked.realigned.recal.g.vcf.gz -V ERR3374036.dupmarked.realigned.recal.g.vcf.gz -V ERR3374037.dupmarked.realigned.recal.g.vcf.gz -V ERR3374038.dupmarked.realigned.recal.g.vcf.gz -V ERR3374039.dupmarked.realigned.recal.g.vcf.gz -V ERR3374040.dupmarked.realigned.recal.g.vcf.gz -V ERR3374041.dupmarked.realigned.recal.g.vcf.gz -V ERR3374042.dupmarked.realigned.recal.g.vcf.gz -V ERR3374043.dupmarked.realigned.recal.g.vcf.gz -V ERR3374044.dupmarked.realigned.recal.g.vcf.gz -V ERR3374045.dupmarked.realigned.recal.g.vcf.gz -V ERR3374046.dupmarked.realigned.recal.g.vcf.gz -V ERR3374047.dupmarked.realigned.recal.g.vcf.gz -V ERR3374048.dupmarked.realigned.recal.g.vcf.gz -V ERR3374049.dupmarked.realigned.recal.g.vcf.gz -V ERR3374050.dupmarked.realigned.recal.g.vcf.gz -V ERR3374051.dupmarked.realigned.recal.g.vcf.gz -V ERR3374052.dupmarked.realigned.recal.g.vcf.gz -V ERR3374053.dupmarked.realigned.recal.g.vcf.gz -V ERR3374054.dupmarked.realigned.recal.g.vcf.gz -V ERR3374055.dupmarked.realigned.recal.g.vcf.gz -V ERR3374056.dupmarked.realigned.recal.g.vcf.gz -V ERR3374057.dupmarked.realigned.recal.g.vcf.gz -V ERR3374058.dupmarked.realigned.recal.g.vcf.gz -V ERR366425.dupmarked.realigned.recal.g.vcf.gz -V ERR366426.dupmarked.realigned.recal.g.vcf.gz -V ERR985372.dupmarked.realigned.recal.g.vcf.gz -V ERR985373.dupmarked.realigned.recal.g.vcf.gz -V ERR985374.dupmarked.realigned.recal.g.vcf.gz -V ERR985375.dupmarked.realigned.recal.g.vcf.gz -V ERR985376.dupmarked.realigned.recal.g.vcf.gz -V ERR985377.dupmarked.realigned.recal.g.vcf.gz -V ERR985378.dupmarked.realigned.recal.g.vcf.gz -V ERR985379.dupmarked.realigned.recal.g.vcf.gz -V ERR985380.dupmarked.realigned.recal.g.vcf.gz -V ERR985381.dupmarked.realigned.recal.g.vcf.gz -V ERR985382.dupmarked.realigned.recal.g.vcf.gz -V ERR985383.dupmarked.realigned.recal.g.vcf.gz -V ERR985384.dupmarked.realigned.recal.g.vcf.gz -V ERR985385.dupmarked.realigned.recal.g.vcf.gz -V ERR985386.dupmarked.realigned.recal.g.vcf.gz -V ERR985387.dupmarked.realigned.recal.g.vcf.gz -V ERR985388.dupmarked.realigned.recal.g.vcf.gz -V ERR985389.dupmarked.realigned.recal.g.vcf.gz -V ERR985390.dupmarked.realigned.recal.g.vcf.gz -V ERR985391.dupmarked.realigned.recal.g.vcf.gz -V ERR985392.dupmarked.realigned.recal.g.vcf.gz -V ERR985393.dupmarked.realigned.recal.g.vcf.gz -V ERR985394.dupmarked.realigned.recal.g.vcf.gz -V ERR985395.dupmarked.realigned.recal.g.vcf.gz -V ERR985396.dupmarked.realigned.recal.g.vcf.gz -V ERR985397.dupmarked.realigned.recal.g.vcf.gz -V ERR985398.dupmarked.realigned.recal.g.vcf.gz -V ERR985399.dupmarked.realigned.recal.g.vcf.gz -V ERR985400.dupmarked.realigned.recal.g.vcf.gz -V ERR985401.dupmarked.realigned.recal.g.vcf.gz -V ERR985402.dupmarked.realigned.recal.g.vcf.gz -V ERR985403.dupmarked.realigned.recal.g.vcf.gz -V ERR985404.dupmarked.realigned.recal.g.vcf.gz -V ERR985405.dupmarked.realigned.recal.g.vcf.gz -V ERR985406.dupmarked.realigned.recal.g.vcf.gz -V ERR985407.dupmarked.realigned.recal.g.vcf.gz -V ERR985408.dupmarked.realigned.recal.g.vcf.gz -V ERR985409.dupmarked.realigned.recal.g.vcf.gz -V ERR985410.dupmarked.realigned.recal.g.vcf.gz -V ERR985411.dupmarked.realigned.recal.g.vcf.gz -V ERR985412.dupmarked.realigned.recal.g.vcf.gz -V ERR985413.dupmarked.realigned.recal.g.vcf.gz -V ERR985415.dupmarked.realigned.recal.g.vcf.gz -V ERR985416.dupmarked.realigned.recal.g.vcf.gz -V ERR985417.dupmarked.realigned.recal.g.vcf.gz -V ERR985418.dupmarked.realigned.recal.g.vcf.gz -V ERR985419.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_001_DKDL210002130-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_002_DKDL210002131-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_003_DKDL210002132-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_004_DKDL210002133-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_005_DKDL210002134-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_006_DKDL210002135-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_007_DKDL210002136-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_008_DKDL210002137-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_009_DKDL210002138-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_010_DKDL210002139-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_012_DKDL210002141-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_013_DKDL210002142-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_014_DKDL210002143-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_015_DKDL210002144-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_017_DKDL210002146-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_018_DKDL210002147-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_019_DKDL210002148-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_020_DKDL210002149-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_021_DKDL210002150-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_022_DKDL210002151-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_023_DKDL210002152-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_024_DKDL210002153-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_025_DKDL210002154-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_026_DKDL210002155-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_027_DKDL210002156-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_029_DKDL210002158-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_031_DKDL210002160-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_032_DKDL210002161-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_033_DKDL210002162-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_034_DKDL210002163-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_035_DKDL210002164-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_036_DKDL210002165-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_037_DKDL210002166-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_038_DKDL210002167-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_039_DKDL210002168-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_040_DKDL210002169-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_041_DKDL210002170-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_044_DKDL210002173-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_045_DKDL210002174-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_046_DKDL210002175-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_047_DKDL210002176-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_048_DKDL210002177-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_049_DKDL210002178-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_050_DKDL210002179-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_051_DKDL210002180-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_052_DKDL210002181-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_053_DKDL210002182-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_054_DKDL210002183-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_055_DKDL210002184-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_056_DKDL210002185-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_057_DKDL210002186-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_058_DKDL210002187-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_059_DKDL210002188-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_060_DKDL210002189-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_061_DKDL210002190-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_062_DKDL210002191-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_064_DKDL210002193-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_065_DKDL210002194-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_066_DKDL210002195-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_067_DKDL210002196-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_068_DKDL210002197-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_069_DKDL210002198-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_070_DKDL210002199-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_071_DKDL210002200-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_072_DKDL210002201-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_073_DKDL210002202-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_074_DKDL210002203-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_075_DKDL210002204-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_076_DKDL210002205-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_077_DKDL210002206-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_078_DKDL210002207-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_079_DKDL210002208-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_080_DKDL210002209-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_081_DKDL210002210-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_082_DKDL210002211-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_083_DKDL210002212-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_084_DKDL210002213-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_085_DKDL210002214-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_086_DKDL210002215-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_087_DKDL210002216-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_088_DKDL210002217-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_089_DKDL210002218-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_090_DKDL210002219-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V PK_SB_DNA_094_DKDL210002223-1a_HWHGKDSXY_L4.dupmarked.realigned.recal.g.vcf.gz -V SRR2221468.dupmarked.realigned.recal.g.vcf.gz -V SRR2222335.dupmarked.realigned.recal.g.vcf.gz -V SRR2225467.dupmarked.realigned.recal.g.vcf.gz -V SRR2225571.dupmarked.realigned.recal.g.vcf.gz -V SRR2225573.dupmarked.realigned.recal.g.vcf.gz -V SRR3135172.dupmarked.realigned.recal.g.vcf.gz \
+    -o $OUTDIR/GATK_combined.g.vcf.gz
+
+echo "---------------------------------------------------------------------------------------------------------------------"
+echo "Genotype GVCFs"
+
+cd $OUTDIR
+
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T GenotypeGVCFs \
+    -nt 16 \
+    -R $INDEXTDIR \
+    -L $INTERVALS \
+    -V GATK_combined.g.vcf.gz \
+    -o GATK_genotyped.vcf.gz
+
+echo "---------------------------------------"
+echo "Finished "
+
+```
+
+## BCFTOOLS
+
+File(s):  
+/g/data/pq84/malaria/Pk_clusters/scripts/04_Variant_calling/bcftools_variant_calling_*.pbs
+/g/data/pq84/malaria/Pk_clusters/scripts/04_Variant_calling/merge_bcftools_vcfs.pbs
+
+Version(s):
+bcftools/1.12
+
+Submission: 
+Single PBS script.
+
+Notes:
+ - m - Alternative model for multiallelic and rare-variant calling
+ - Oz - compressed output
+ - a - annotate with the following parameters
+ - v - variants only  
+
+This job had to be split up by chromosome due to the large dataset and Gadi's 48 walltime limit. Thus, it was split up into 5 jobs. 4 initially but after a failed job I had to further divide one.
+After running the separate bcftools jobs I then needed to recombine the VCF files containg differnt chromosomes.
+
+Script: The first script is an example of the five that was submitted prior to merging the VCF files. The second script is applying GATK to merge the VCF files containing different contigs/chromosomes.
+
+```{R,eval=F}
+#!/bin/bash
+#PBS -P pq84
+#PBS -q normal 
+#PBS -N Variant_calling_bcftools
+#PBS -j oe
+#PBS -m ae
+#PBS -l walltime=48:00:00,mem=128GB,ncpus=16
+#PBS -l storage=gdata/pq84+scratch/pq84
+#PBS -M jacob.westaway@menzies.edu.au
+
+echo "---------------------------------------"
+echo "PBS: Job identifier is $PBS_JOBID"
+echo "PBS: Job name is $PBS_JOBNAME"
+echo "Chromosomes 1 to 4"
+
+echo "---------------------------------------"
+echo "Define paths and load modules"
+module load bcftools/1.12
+
+echo "---------------------------------------"
+echo "---------------------------------------"
+echo 'Change to working directory and set env variables'
+INDEXTDIR="/g/data/pq84/malaria/data/ref_genomes/PKA1H1/fasta/strain_A1_H.1.Icor.fasta"
+OUTDIR="/g/data/pq84/malaria/Pk_clusters/outputs/04_Variant_calling/bcftools"
+INDIR="/g/data/pq84/malaria/Pk_clusters/outputs/03_Bam-pre/final_bam"
+
+echo "---------------------------------------------------------------------------------------------------------------------"
+echo "create input bam file list"
+echo "---------------------------------------------------------------------------------------------------------------------"
+cd $INDIR
+
+ls *bam | cut -d ' ' -f 10 > input_bam_files.list
+
+echo "---------------------------------------------------------------------------------------------------------------------"
+echo "bcftools"
+echo "---------------------------------------------------------------------------------------------------------------------"
+
+bcftools mpileup --threads 16 -f $INDEXTDIR -b $INDIR/input_bam_files.list \
+   -r ordered_PKNH_01_v2,ordered_PKNH_02_v2,ordered_PKNH_03_v2,ordered_PKNH_04_v2 \
+   | bcftools call --threads 16 -m -Oz -a FORMAT/GQ,FORMAT/GP,INFO/PV4 -v -o $OUTDIR/bcftools_genotyped_1.vcf.gz
+
+bcftools index --threads 16 -t -o $OUTDIR/bcftools_genotyped_1.vcf.gz.tbi $OUTDIR/bcftools_genotyped_1.vcf.gz
+
+echo "---------------------------------------"
+echo "Finished "
+```
+
+
+```{R,eval=F}
+#!/bin/bash
+#PBS -P pq84
+#PBS -q normal 
+#PBS -N Merge_VCFs_from_bcftools
+#PBS -j oe
+#PBS -m ae
+#PBS -l walltime=8:00:00,mem=80GB,ncpus=10 
+#PBS -l storage=gdata/pq84+scratch/pq84
+#PBS -M jacob.westaway@menzies.edu.au
+
+echo "---------------------------------------"
+echo "PBS: Job identifier is $PBS_JOBID"
+echo "PBS: Job name is $PBS_JOBNAME"
+
+echo "---------------------------------------"
+echo "Define paths and load modules"
+module load java/jdk-8.40 
+PICARD="/g/data/pq84/bin/picard/build/libs/picard.jar"
+GATK="/g/data/pq84/bin/GenomeAnalysisTK-3.8-1-0/GenomeAnalysisTK.jar"
+
+echo "---------------------------------------"
+echo "---------------------------------------"
+echo 'Change to working directory and set env variables'
+cd /g/data/pq84/malaria/Pk_clusters/outputs/04_Variant_calling/bcftools
+
+echo "---------------------------------------"
+echo "---------------------------------------"
+echo 'Use GATK to merge VCF files containing the SAME samples BUT DIFFERENT contigs'
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $PICARD \
+    MergeVcfs \
+    I=bcftools_genotyped_1.vcf.gz \
+    I=bcftools_genotyped_2.vcf.gz \
+    I=bcftools_genotyped_3.1.vcf.gz \
+    I=bcftools_genotyped_3.2.vcf.gz \
+    I=bcftools_genotyped_4.vcf.gz \
+    O=bcftools_genotyped.vcf.gz
+
+echo "---------------------------------------"
+echo "Finished "
+```
+
+
+## CREATING A CONSENSUS VCF 
+
+File(s):
+/g/data/pq84/malaria/Pk_clusters/scripts/04_Variant_calling/consensus_vcf.pbs
+
+Version(s):
+bcftools/1.12 & R/4.1.0 
+
+Submission: 
+Single PBS script.
+
+Notes:
+To intall packages on GADI - module load R/4.1.0 & module load intel-compiler/2021.5.0 - need a compiler. 
+Need to specificy library - export R_LIBS_USER="/g/data/pq84/R"
+
+  - bcftools query
+    - f - format - inside the square brackets are for the annotation-specific column, whereas the annotations outside have their own column
+  - fgrep 
+    - f - file of patterns to search for
+
+Script:
+
+```{R,eval=F}
+
+```
+
+### R script nested in consensus PBS script
+
+```{R,veal=F}
+# Wrangle variant calling data - version 2 - using merged VCF file
+
+# Load Packages
+library(readr)
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(data.table)
+library(tibble)
+
+VCF <- read_tsv("/g/data/pq84/malaria/outputs/04_Variant_calling/consensus/merged_variants_only.tsv", col_names = TRUE) %>% 
+  rename("CHROM" = "#CHROM") %>% 
+  mutate_at(1:5, as.factor) %>% 
+  unite(variant_name, CHROM, POS, ID, REF, ALT, sep = "_") %>% 
+  select(-c(2:5)) %>% 
+  mutate_at(c(2:ncol(.)), ~str_remove(., ":.*")) %>% 
+  mutate_at(c(2:ncol(.)), ~ifelse(. %like% "1/1", "1", .)) %>% # homozygous
+  mutate_at(c(2:ncol(.)), ~ifelse(. %like% "1/0" | . %like% "0/1" , "0.5", .)) %>%  # heterozygous
+  mutate_at(c(2:ncol(.)), ~ifelse(. != "1" & . != "0.5" , "0", .)) %>% 
+  mutate(variant_name = str_remove(variant_name, "_\\.")) 
+
+ordered_VCF <- VCF %>% 
+  filter(grepl("ordered", variant_name)) %>% 
+  select(1, starts_with("2:")) %>% 
+  pivot_longer(!variant_name, names_to = "sample", values_to = "variant_1") %>% 
+  mutate(sample = str_remove(sample, "2:")) %>% 
+  left_join(
+    VCF %>% 
+      filter(grepl("ordered", variant_name)) %>% 
+      select(1, !starts_with("2:")) %>% 
+      pivot_longer(!variant_name, names_to = "sample", values_to = "variant_2")
+  ) %>% 
+  mutate_at(c(3:4), as.numeric) %>% 
+  mutate(consensus_variant = ifelse((variant_1 == variant_2) & (variant_1 + variant_2 >= 1), 1, 0)) %>%
+  filter(consensus_variant == 1) %>% 
+  select(1,2,5) %>% 
+  pivot_wider(names_from = sample, values_from = consensus_variant) %>%  
+  select(1) %>%  
+  separate(variant_name, into = c("X1", "X2", "X3", "X4", "POS", "REF", "ALT"), sep = "_") %>%  
+  unite(CHROM, starts_with("X")) %>% 
+  add_column(ID = ".") %>% 
+  relocate(CHROM, POS, ID)  
+
+MIT_VCF <- VCF %>% 
+  filter(grepl("MIT", variant_name)) %>% 
+  select(1, starts_with("2:")) %>% 
+  pivot_longer(!variant_name, names_to = "sample", values_to = "variant_1") %>% 
+  mutate(sample = str_remove(sample, "2:")) %>% 
+  left_join(
+    VCF %>% 
+      filter(grepl("MIT", variant_name)) %>% 
+      select(1, !starts_with("2:")) %>% 
+      pivot_longer(!variant_name, names_to = "sample", values_to = "variant_2")
+  ) %>% 
+  mutate_at(c(3:4), as.numeric) %>% 
+  mutate(consensus_variant = ifelse((variant_1 == variant_2) & (variant_1 + variant_2 >= 1), 1, 0)) %>%
+  filter(consensus_variant == 1) %>% 
+  select(1,2,5) %>% 
+  pivot_wider(names_from = sample, values_from = consensus_variant) %>%  
+  select(1) %>%  
+  separate(variant_name, into = c("X1", "X2", "X3", "POS", "REF", "ALT"), sep = "_") %>%  
+  unite(CHROM, starts_with("X")) %>% 
+  add_column(ID = ".") %>% 
+  relocate(CHROM, POS, ID)  
+
+API_VCF <- VCF %>% 
+  filter(grepl("API", variant_name)) %>% 
+  select(1, starts_with("2:")) %>% 
+  pivot_longer(!variant_name, names_to = "sample", values_to = "variant_1") %>% 
+  mutate(sample = str_remove(sample, "2:")) %>% 
+  left_join(
+    VCF %>% 
+      filter(grepl("API", variant_name)) %>% 
+      select(1, !starts_with("2:")) %>% 
+      pivot_longer(!variant_name, names_to = "sample", values_to = "variant_2")
+  ) %>% 
+  mutate_at(c(3:4), as.numeric) %>% 
+  mutate(consensus_variant = ifelse((variant_1 == variant_2) & (variant_1 + variant_2 >= 1), 1, 0)) %>%
+  filter(consensus_variant == 1) %>% 
+  select(1,2,5) %>% 
+  pivot_wider(names_from = sample, values_from = consensus_variant) %>%  
+  select(1) %>%  
+  separate(variant_name, into = c("X1", "X2", "X3", "X4", "X5", "POS", "REF", "ALT"), sep = "_") %>%  
+  unite(CHROM, starts_with("X")) %>% 
+  add_column(ID = ".") %>% 
+  relocate(CHROM, POS, ID)  
+
+ordered_VCF %>% 
+  rbind(MIT_VCF, API_VCF) %>% 
+  write_tsv("/g/data/pq84/malaria/outputs/04_Variant_calling/consensus/vcf_variant_names.tsv")
+
+
+```
+
+# 05_VARIANT_FILTERING
+
+File(s):  
+/g/data/pq84/malaria/Pk_clusters/scripts/05_Variant_filtering/Filter_variants.pbs
+
+Version(s):
+java/jdk-8.40 & & GATK/3.8.1
+
+Submission:
+Single PBS script.
+
+Notes:
+These filtering parameters are based on those appalied to *P. vivax* by the Sanger Institute, but with the values adjusted for the distribution of quality scrores in our truth set.
+
+Script:
+
+```{R,eval=F}
+```
+
+# 06_VARIANT_ANNOTATION
+
+File(s):  
+/g/data/pq84/malaria/Pk_clusters/scripts/06_Variant_annotation/annotate_variants.pbs
+
+Version(s):
+perl/5.26 & ensembl vep/105.0
+
+Submission:
+Single PBS script.
+
+Notes:
+
+Installing vep:
+    - GitHub URL: https://github.com/Ensembl/ensembl-vep
+    - To install vep on Gadi requires a gcc compiler, but the Annobin requirement is not installed and must be done so before using gcc to compile vep.
+    - Also require PERL to install cpanM, which can then be used to install the Perl libraries need by vep.
+
+We first needed to modify our GFF file:
+    - Change the contig names to match the reference genome and VCF files.
+    - Substitute protein_coding_gene for gene.
+    - Sort and modfiy the structure to suit ensembl requirements.
+
+Script:
+
+```{R,eval=F}
+```
