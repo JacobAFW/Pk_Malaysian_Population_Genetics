@@ -1,12 +1,12 @@
 # Ignore everything
-/*
+*
 
 # But not these files...
 !.gitignore
 !scripts/
+scripts/*
 !README.md
 !Malaysian_pop_gen_workflow.Rmd
-!*/
 
 # ...even if they are in subdirectories
 !*/
