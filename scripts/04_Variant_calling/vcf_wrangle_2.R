@@ -8,7 +8,7 @@ library(stringr)
 library(data.table)
 library(tibble)
 
-VCF <- read_tsv("/g/data/pq84/malaria/Pk_clusters/outputs/04_Variant_calling/consensus/merged_variants_only.tsv", col_names = TRUE) %>% 
+VCF <- read_tsv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/consensus/merged_variants_only.tsv", col_names = TRUE) %>% 
   rename("CHROM" = "#CHROM") %>% 
   mutate_at(1:5, as.factor) %>% 
   unite(variant_name, CHROM, POS, ID, REF, ALT, sep = "_") %>% 
@@ -87,4 +87,4 @@ API_VCF <- VCF %>%
 
 ordered_VCF %>% 
   rbind(MIT_VCF, API_VCF) %>% 
-  write_tsv("/g/data/pq84/malaria/Pk_clusters/outputs/04_Variant_calling/consensus/vcf_variant_names.tsv")
+  write_tsv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/consensus/vcf_variant_names.tsv")
