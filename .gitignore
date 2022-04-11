@@ -9,6 +9,10 @@
 !scripts/*/*/*/*
 !scripts/*/*/*/*/*
 !scripts/*/*/*/*/*/*
+!scripts/*/*/*/*/*/*/*
+!scripts/*/*/*/*/*/*/*/*
+!scripts/*/*/*/*/*/*/*/*/*
+!scripts/*/*/*/*/*/*/*/*/*/*
 !README.md
 !Malaysian_pop_gen_workflow.Rmd
 
