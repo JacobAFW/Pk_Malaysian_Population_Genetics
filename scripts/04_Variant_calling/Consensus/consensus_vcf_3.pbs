@@ -1,0 +1,72 @@
+#!/bin/bash
+#PBS -P pq84
+#PBS -q normalbw
+#PBS -N Consensus_final_assembly
+#PBS -j oe
+#PBS -m ae
+#PBS -l walltime=24:00:00,mem=128GB,ncpus=16
+#PBS -l storage=gdata/pq84+scratch/pq84
+#PBS -M jacob.westaway@menzies.edu.au
+
+echo "---------------------------------------"
+echo "PBS: Job identifier is $PBS_JOBID"
+echo "PBS: Job name is $PBS_JOBNAME"
+echo "Pk pop gen in Malaysia"
+
+echo "---------------------------------------"
+echo "Define paths"
+module load bcftools/1.12
+module load R/4.1.0 
+export R_LIBS_USER="/g/data/pq84/R"
+module load java/jdk-8.40 
+
+echo "---------------------------------------"
+echo "---------------------------------------"
+echo 'Change to working directory and set env variables'
+PICARD="/g/data/pq84/bin/picard/build/libs/picard.jar"
+GATK="/g/data/pq84/bin/GenomeAnalysisTK-3.8-1-0/GenomeAnalysisTK.jar" 
+INDEXTDIR="/g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/data/ref_genomes/PKA1H1/fasta/strain_A1_H.1.Icor.fasta"
+OUTDIR="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/consensus/"
+
+mkdir $OUTDIR
+cd $OUTDIR
+
+echo "---------------------------------------"
+echo "Create a seperate file that contains all the header information for the vcf"
+bcftools view $INDIR/merged_variants_only.vcf.gz | sed '/#CHROM/q' > vcf_head.vcf
+
+
+echo "---------------------------------------"
+echo "Concatenate the vcf header add all the CHROMSOME consensus VCF files"
+cat vcf_head.vcf *filtered.vcf > Consensus_with_duplicates.vcf
+
+
+echo "---------------------------------------"
+echo "Sort VCF so that its in the same order as the reference"
+bcftools sort -o Consensus_with_duplicates_sorted.vcf.gz Consensus_with_duplicates.vcf
+
+
+echo "---------------------------------------"
+echo "Index VCF"
+bcftools index --threads 16 -t -o Consensus_with_duplicates_sorted.vcf.gz.tbi Consensus_with_duplicates_sorted.vcf.gz
+
+
+echo "---------------------------------------"
+echo "Remove duplicate sample names from VCF"
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T SelectVariants \
+    -R $INDEXTDIR \
+    -V Consensus_with_duplicates_sorted.vcf.gz \
+    -xl_se '2:' \
+    -o Consensus.vcf.gz
+
+
+echo "---------------------------------------"
+echo "Clean Up"
+rm -f *filtered.vcf
+rm -f *variant_names.tsv
+rm -f *patterns.txt
+
+
+echo "---------------------------------------"
+echo "Finished"

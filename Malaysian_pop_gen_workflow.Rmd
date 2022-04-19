@@ -615,13 +615,19 @@ echo "Finished "
 ## CREATING A CONSENSUS VCF 
 
 File(s):
-/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/04_Variant_calling/consensus_vcf.pbs
+/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/04_Variant_calling/Consensus/consensus_vcf_1.pbs
+/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/04_Variant_calling/Consensus/consensus_vcf_2.pbs
+/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/04_Variant_calling/Consensus/consensus_vcf_3.pbs
 
 Version(s):
 bcftools/1.12 & R/4.1.0 
 
 Submission: 
-Single PBS script.
+Had to break this up into multiple scripts and create a consensus for each of the chromosomes before recombining them all. The R script uses a large amount of resources (> 240GB for the ~220 samples and all 16 contigs together) and even Gadi couldn't handle it.
+
+ - Step 1: consensus_vcf_1.pbs is run as a single script, and within it, consensus_vcf_2.pbs is used to create a batch of scripts (both pbs and R) for the second step.
+ - Step 2: has a pbs and R script for each chromosome - `for file in *_chr.pbs; do qsub $file; done`.
+ - Step 3: the final step takes the outputs from the previous step and combines them back into a single VCF.
 
 Notes:
 To intall packages on GADI - module load R/4.1.0 & module load intel-compiler/2021.5.0 - need a compiler. 
@@ -632,13 +638,132 @@ Need to specificy library - export R_LIBS_USER="/g/data/pq84/R"
   - fgrep 
     - f - file of patterns to search for
 
-Script:
+Scripts:
+
+Step 1
 
 ```{R,eval=F}
+#!/bin/bash
+#PBS -P pq84
+#PBS -q normalbw
+#PBS -N Consensus_split_into_chr
+#PBS -j oe
+#PBS -m ae
+#PBS -l walltime=12:00:00,mem=80GB,ncpus=10
+#PBS -l storage=gdata/pq84+scratch/pq84
+#PBS -M jacob.westaway@menzies.edu.au
 
+echo "---------------------------------------"
+echo "PBS: Job identifier is $PBS_JOBID"
+echo "PBS: Job name is $PBS_JOBNAME"
+echo "Pk pop gen in Malaysia"
+
+echo "---------------------------------------"
+echo "Define paths"
+module load bcftools/1.12
+
+echo "---------------------------------------"
+echo "---------------------------------------"
+echo 'Change to working directory and set env variables'
+OUTDIR="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/consensus/"
+INDIR="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/"
+
+mkdir $OUTDIR
+cd $OUTDIR
+
+echo "---------------------------------------"
+echo 'Merge variants from the two variant callers'
+bcftools merge --threads 10 --force-samples -o $OUTDIR/merged_variants_only.vcf.gz $INDIR/gatk/GATK_genotyped.vcf.gz $INDIR/bcftools/bcftools_genotyped.vcf.gz
+
+
+echo "---------------------------------------"
+echo "Query VCF files to get a list of 'variant IDs' from each tool"
+bcftools view merged_variants_only.vcf.gz | sed -n '/#CHROM/,$p' > merged_variants_only.tsv
+
+
+echo "---------------------------------------"
+echo "Create a list of chromsome names and copy over to script directory - needed in both"
+awk '!a[$1]++' merged_variants_only.tsv | awk '{print $1}' | grep -v '#CHROM' > chromosomes.txt
+
+cp chromosomes.txt /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/04_Variant_calling/Consensus/chromosomes.txt
+
+
+echo "---------------------------------------"
+echo "Split up into separate tsv files for each chromosomes"
+for i in $(cat chromosomes.txt)
+    do grep $i'\|#CHROM' merged_variants_only.tsv > ${i}.tsv
+done 
+
+
+echo "---------------------------------------"
+echo "Create R and PBS scripts to wrangle each chromosome"
+cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/04_Variant_calling/Consensus/
+
+for i in $(cat chromosomes.txt)
+do
+sed s/CHROMOSOME/$i/g vcf_wrangle_2.R > ${i}.R
+done
+    
+for i in $(cat chromosomes.txt)
+do
+sed s/CHROMOSOME/$i/g consensus_vcf_2.pbs > ${i}_chr.pbs
+done
+
+
+echo "---------------------------------------"
+echo "Finished "
 ```
 
-### R script nested in consensus PBS script
+Step 2
+```{R,eval=F}
+#!/bin/bash
+#PBS -P pq84
+#PBS -q normalbw
+#PBS -N Consensus_CHROMOSOME
+#PBS -j oe
+#PBS -m ae
+#PBS -l walltime=12:00:00,mem=80GB,ncpus=10
+#PBS -l storage=gdata/pq84+scratch/pq84
+#PBS -M jacob.westaway@menzies.edu.au
+
+echo "---------------------------------------"
+echo "PBS: Job identifier is $PBS_JOBID"
+echo "PBS: Job name is $PBS_JOBNAME"
+echo "Pk pop gen in Malaysia"
+
+echo "---------------------------------------"
+echo "Define paths"
+module load bcftools/1.12
+module load R/4.1.0 
+export R_LIBS_USER="/g/data/pq84/R"
+
+echo "---------------------------------------"
+echo "---------------------------------------"
+echo 'Change to working directory and set env variables'
+OUTDIR="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/consensus/"
+
+cd $OUTDIR
+
+echo "---------------------------------------"
+echo "Execute R script - performs an inner join on the 'variant IDs' above to find the overlapping variants"
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/04_Variant_calling/Consensus/CHROMOSOME.R
+
+
+echo "---------------------------------------"
+echo "Remove the column names from the variant names document to create a list of grep patterns"
+tail -n +2 CHROMOSOME_variant_names.tsv > CHROMOSOME_patterns.txt 
+
+
+echo "---------------------------------------"
+echo "Filter for variants from the original vcf that are called by both callers by using grep to match patterns created above" 
+bcftools view merged_variants_only.vcf.gz | fgrep -f CHROMOSOME_patterns.txt - > CHROMOSOME_filtered.vcf
+
+    
+echo "---------------------------------------"
+echo "Finished "
+```
+
+R script (template) nested in consensus script 2
 
 ```{R,veal=F}
 # Wrangle variant calling data - version 2 - using merged VCF file
@@ -651,7 +776,7 @@ library(stringr)
 library(data.table)
 library(tibble)
 
-VCF <- read_tsv("/g/data/pq84/malaria/outputs/04_Variant_calling/consensus/merged_variants_only.tsv", col_names = TRUE) %>% 
+VCF <- read_tsv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/consensus/CHROMOSOME.tsv", col_names = TRUE) %>% 
   rename("CHROM" = "#CHROM") %>% 
   mutate_at(1:5, as.factor) %>% 
   unite(variant_name, CHROM, POS, ID, REF, ALT, sep = "_") %>% 
@@ -730,9 +855,84 @@ API_VCF <- VCF %>%
 
 ordered_VCF %>% 
   rbind(MIT_VCF, API_VCF) %>% 
-  write_tsv("/g/data/pq84/malaria/outputs/04_Variant_calling/consensus/vcf_variant_names.tsv")
+  write_tsv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/consensus/CHROMOSOME_variant_names.tsv")
+```
+
+Step 3
+
+```{R,eval=F}
+#!/bin/bash
+#PBS -P pq84
+#PBS -q normalbw
+#PBS -N Consensus_final_assembly
+#PBS -j oe
+#PBS -m ae
+#PBS -l walltime=24:00:00,mem=128GB,ncpus=16
+#PBS -l storage=gdata/pq84+scratch/pq84
+#PBS -M jacob.westaway@menzies.edu.au
+
+echo "---------------------------------------"
+echo "PBS: Job identifier is $PBS_JOBID"
+echo "PBS: Job name is $PBS_JOBNAME"
+echo "Pk pop gen in Malaysia"
+
+echo "---------------------------------------"
+echo "Define paths"
+module load bcftools/1.12
+module load R/4.1.0 
+export R_LIBS_USER="/g/data/pq84/R"
+module load java/jdk-8.40 
+
+echo "---------------------------------------"
+echo "---------------------------------------"
+echo 'Change to working directory and set env variables'
+PICARD="/g/data/pq84/bin/picard/build/libs/picard.jar"
+GATK="/g/data/pq84/bin/GenomeAnalysisTK-3.8-1-0/GenomeAnalysisTK.jar" 
+INDEXTDIR="/g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/data/ref_genomes/PKA1H1/fasta/strain_A1_H.1.Icor.fasta"
+OUTDIR="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/consensus/"
+
+mkdir $OUTDIR
+cd $OUTDIR
+
+echo "---------------------------------------"
+echo "Create a seperate file that contains all the header information for the vcf"
+bcftools view merged_variants_only.vcf.gz | sed '/#CHROM/q' > vcf_head.vcf
 
 
+echo "---------------------------------------"
+echo "Concatenate the vcf header add all the CHROMSOME consensus VCF files"
+cat vcf_head.vcf $INDIR/*filtered.vcf > Consensus_with_duplicates.vcf
+
+
+echo "---------------------------------------"
+echo "Sort VCF so that its in the same order as the reference"
+bcftools sort -o Consensus_with_duplicates_sorted.vcf.gz Consensus_with_duplicates.vcf
+
+
+echo "---------------------------------------"
+echo "Index VCF"
+bcftools index --threads 16 -t -o Consensus_with_duplicates_sorted.vcf.gz.tbi Consensus_with_duplicates_sorted.vcf.gz
+
+
+echo "---------------------------------------"
+echo "Remove duplicate sample names from VCF"
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T SelectVariants \
+    -R $INDEXTDIR \
+    -V Consensus_with_duplicates_sorted.vcf.gz \
+    -xl_se '2:' \
+    -o Consensus.vcf.gz
+
+
+echo "---------------------------------------"
+echo "Clean Up"
+rm -f *filtered.vcf
+rm -f *variant_names.tsv
+rm -f *patterns.txt
+
+
+echo "---------------------------------------"
+echo "Finished"
 ```
 
 # 05_VARIANT_FILTERING

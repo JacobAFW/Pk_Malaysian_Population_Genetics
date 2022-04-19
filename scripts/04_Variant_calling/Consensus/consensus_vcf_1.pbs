@@ -1,0 +1,69 @@
+#!/bin/bash
+#PBS -P pq84
+#PBS -q normalbw
+#PBS -N Consensus_split_into_chr
+#PBS -j oe
+#PBS -m ae
+#PBS -l walltime=12:00:00,mem=80GB,ncpus=10
+#PBS -l storage=gdata/pq84+scratch/pq84
+#PBS -M jacob.westaway@menzies.edu.au
+
+echo "---------------------------------------"
+echo "PBS: Job identifier is $PBS_JOBID"
+echo "PBS: Job name is $PBS_JOBNAME"
+echo "Pk pop gen in Malaysia"
+
+echo "---------------------------------------"
+echo "Define paths"
+module load bcftools/1.12
+
+echo "---------------------------------------"
+echo "---------------------------------------"
+echo 'Change to working directory and set env variables'
+OUTDIR="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/consensus/"
+INDIR="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/"
+
+mkdir $OUTDIR
+cd $OUTDIR
+
+echo "---------------------------------------"
+echo 'Merge variants from the two variant callers'
+bcftools merge --threads 10 --force-samples -o $OUTDIR/merged_variants_only.vcf.gz $INDIR/gatk/GATK_genotyped.vcf.gz $INDIR/bcftools/bcftools_genotyped.vcf.gz
+
+
+echo "---------------------------------------"
+echo "Query VCF files to get a list of 'variant IDs' from each tool"
+bcftools view merged_variants_only.vcf.gz | sed -n '/#CHROM/,$p' > merged_variants_only.tsv
+
+
+echo "---------------------------------------"
+echo "Create a list of chromsome names and copy over to script directory - needed in both"
+awk '!a[$1]++' merged_variants_only.tsv | awk '{print $1}' | grep -v '#CHROM' > chromosomes.txt
+
+cp chromosomes.txt /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/04_Variant_calling/Consensus/chromosomes.txt
+
+
+echo "---------------------------------------"
+echo "Split up into separate tsv files for each chromosomes"
+for i in $(cat chromosomes.txt)
+    do grep $i'\|#CHROM' merged_variants_only.tsv > ${i}.tsv
+done 
+
+
+echo "---------------------------------------"
+echo "Create R and PBS scripts to wrangle each chromosome"
+cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/04_Variant_calling/Consensus/
+
+for i in $(cat chromosomes.txt)
+do
+sed s/CHROMOSOME/$i/g vcf_wrangle_2.R > ${i}.R
+done
+    
+for i in $(cat chromosomes.txt)
+do
+sed s/CHROMOSOME/$i/g consensus_vcf_2.pbs > ${i}_chr.pbs
+done
+
+
+echo "---------------------------------------"
+echo "Finished "

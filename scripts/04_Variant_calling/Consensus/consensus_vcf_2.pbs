@@ -1,0 +1,45 @@
+#!/bin/bash
+#PBS -P pq84
+#PBS -q normalbw
+#PBS -N Consensus_CHROMOSOME
+#PBS -j oe
+#PBS -m ae
+#PBS -l walltime=12:00:00,mem=80GB,ncpus=10
+#PBS -l storage=gdata/pq84+scratch/pq84
+#PBS -M jacob.westaway@menzies.edu.au
+
+echo "---------------------------------------"
+echo "PBS: Job identifier is $PBS_JOBID"
+echo "PBS: Job name is $PBS_JOBNAME"
+echo "Pk pop gen in Malaysia"
+
+echo "---------------------------------------"
+echo "Define paths"
+module load bcftools/1.12
+module load R/4.1.0 
+export R_LIBS_USER="/g/data/pq84/R"
+
+echo "---------------------------------------"
+echo "---------------------------------------"
+echo 'Change to working directory and set env variables'
+OUTDIR="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/consensus/"
+
+cd $OUTDIR
+
+echo "---------------------------------------"
+echo "Execute R script - performs an inner join on the 'variant IDs' above to find the overlapping variants"
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/04_Variant_calling/Consensus/CHROMOSOME.R
+
+
+echo "---------------------------------------"
+echo "Remove the column names from the variant names document to create a list of grep patterns"
+tail -n +2 CHROMOSOME_variant_names.tsv > CHROMOSOME_patterns.txt 
+
+
+echo "---------------------------------------"
+echo "Filter for variants from the original vcf that are called by both callers by using grep to match patterns created above" 
+bcftools view merged_variants_only.vcf.gz | fgrep -f CHROMOSOME_patterns.txt - > CHROMOSOME_filtered.vcf
+
+    
+echo "---------------------------------------"
+echo "Finished "

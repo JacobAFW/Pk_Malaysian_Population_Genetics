@@ -1,10 +1,10 @@
 #!/bin/bash
 #PBS -P pq84
-#PBS -q normal 
+#PBS -q normalbw
 #PBS -N Filter_variants
 #PBS -j oe
 #PBS -m ae
-#PBS -l walltime=12:00:00,mem=50GB,ncpus=10
+#PBS -l walltime=12:00:00,mem=80GB,ncpus=10
 #PBS -l storage=gdata/pq84+scratch/pq84
 #PBS -M jacob.westaway@menzies.edu.au
 
@@ -19,17 +19,18 @@ module load java/jdk-8.40
 echo "---------------------------------------"
 echo "Define paths and change to working directory"
 PICARD="/g/data/pq84/bin/picard/build/libs/picard.jar"
-INDEXTDIR="/g/data/pq84/malaria/data/ref_genomes/PKA1H1/fasta/strain_A1_H.1.Icor.fasta"
+INDEXTDIR="/g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/data/ref_genomes/PKA1H1/fasta/strain_A1_H.1.Icor.fasta"
 GATK="/g/data/pq84/bin/GenomeAnalysisTK-3.8-1-0/GenomeAnalysisTK.jar"
-INDIR="/g/data/pq84/malaria/outputs/04_Variant_calling/consensus/"
-OUTDIR="/g/data/pq84/malaria/outputs/04_Variant_calling/filtered/"
+INDIR="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/consensus/"
+OUTDIR="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/filtered/"
 
+mkdir $OUTDIR
 cd $INDIR
 
 echo "---------------------------------------"
 echo 'Correct bcftools introduced changes to make java happy'
 echo "---------------------------------------"
-cat Consensus.vcf | sed 's/MQ=nan/MQ=NaN/g' > Consensus_fixed.vcf
+zcat Consensus.vcf.gz | sed 's/MQ=nan/MQ=NaN/g' > Consensus_fixed.vcf
 
 echo "---------------------------------------"
 echo 'SUBSET TO VARIANT TYPE'
@@ -85,6 +86,11 @@ java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
     -filter "FS > 2.0" -filterName "FS60" \
     -filter "MQ < 59.0" -filterName "MQ40" \
     -o $OUTDIR/FILTERED_INDELs.vcf
+
+echo "---------------------------------------"
+echo 'Clean up'
+echo "---------------------------------------"
+rm -f Consensus_fixed.vcf
 
 echo "---------------------------------------"
 echo "Finsihed"
