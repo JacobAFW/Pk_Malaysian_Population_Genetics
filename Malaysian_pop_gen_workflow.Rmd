@@ -626,7 +626,7 @@ Submission:
 Had to break this up into multiple scripts and create a consensus for each of the chromosomes before recombining them all. The R script uses a large amount of resources (> 240GB for the ~220 samples and all 16 contigs together) and even Gadi couldn't handle it.
 
  - Step 1: consensus_vcf_1.pbs is run as a single script, and within it, consensus_vcf_2.pbs is used to create a batch of scripts (both pbs and R) for the second step.
- - Step 2: has a pbs and R script for each chromosome - `for file in *_chr.pbs; do qsub $file; done`.
+ - Step 2: has a pbs and R script for each chromosome - to submit - `for file in *_chr.pbs; do qsub $file; done`.
  - Step 3: the final step takes the outputs from the previous step and combines them back into a single VCF.
 
 Notes:
