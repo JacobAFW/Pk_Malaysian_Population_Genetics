@@ -1,0 +1,699 @@
+# Using plink to for explotaroy analyses
+
+This markdown describes the population genetics analyses, inlcuding pre-processing steps.
+
+Helpful links:
+PLINK: https://www.biostars.org/p/271694/
+PLINK: https://plink.readthedocs.io/en/latest/plink_ex/
+MOI: https://bahlolab.github.io/moimix/vignettes/introduction.html#estimating-moi-with-f_ws
+
+## Required tools/libraries for Analyses
+
+```{bash}
+module load bcftools/1.12
+module load java/jdk-8.40 
+module load R/4.1.0 
+export R_LIBS_USER="/g/data/pq84/R"
+export PATH=$PATH:/g/data/pq84/bin/plink2/
+
+FASTA="/g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/data/ref_genomes/PKA1H1/fasta"
+VCF="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/filtered/"
+GATK="/g/data/pq84/bin/GenomeAnalysisTK-3.8-1-0/GenomeAnalysisTK.jar"
+
+cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses
+```
+
+## Filter for variants that pass filters
+
+ - change the AD definition - the error occurs when there is a difference in the number of ALT alleles and the number of AD values
+ - ensure multi-allelic calls are split
+ - left-align indeals
+ - Set the ID fieles to unique values
+
+```{bash,eval=F}
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T SelectVariants \
+    -R $FASTA/strain_A1_H.1.Icor.fasta \
+    -V $VCF/FILTERED_SNPs.vcf  \
+    --excludeFiltered \
+    -o PK_consensus_filtered_pass.vcf
+```
+
+#############################################################################################################
+# TO Complete
+## Calculate multiplicity of infection using moimix
+
+To install MCMCpack on Gadi: https://opus.nci.org.au/display/Help/R 
+
+Steps:
+ - Convert VCF to GDS
+ - Estimate BAF matrix 
+    - estimate B-allele freq for each isolate. 
+    - resulting bafmatrix stores estimates and genomic coordinates
+ - Estimating MOI with binommix
+    - estimated on per-isolate basis using binomial mixture model
+    - to fit model - need a matrix of read counts and to set the value of k=2c where c is the number of colnal infections
+ - Estimating MOI with Fws
+    - alternative way of assessing clonality is to estmate Fws, with Fws < 0.95 indicating clonal infection (low MOI)
+
+
+**NB** - you first need to add annotation the ID column of your VCF file:
+module load samtools/1.12 
+bcftools annotate --set-id +'%CHROM\_%POS\_%REF\_%FIRST_ALT' PK_consensus_filtered_pass.vcf > estMOI/PK_consensus_filtered_pass.vcf
+
+Run below in R
+```{R,eval=F}
+# Converting VCF to GDS for estMOI
+library(SeqArray)
+seqVCF2GDS("estMOI/PK_consensus_filtered_pass.vcf", "estMOI/PK_consensus_filtered_pass.gds")
+isolates <- seqOpen("estMOI/PK_consensus_filtered_pass.gds") # read into R
+seqSummary(isolates)
+
+sample.id <- seqGetData(isolates, "sample.id")
+
+
+# moimix analysis
+library(moimix)
+coords <- getCoordinates(isolates) # get genomic coordinates of all variants
+
+## estimating BAF matrix 
+isolate_baf <- bafMatrix(isolates)
+
+## Plot BAF matrix and export ###########################
+
+## Estimate MOI with binommix
+set.seed(2022)
+counts <- alleleCounts(isolates)
+m1 <- binommix(counts, samplie.id = "ERR2214837", k = 2)
+summary(m1)
+param.estimates <- getTheta(m1)
+param.estimates
+
+## Plot MOI and export ######################
+
+## Estiamting MOI with Fws
+fws_all <- getFws(isolates)
+
+## Plot MOI distribution and export ######################
+
+## identify isolates with high MOI
+library(tidyverse)
+fws_all %>%
+    filter() %>%
+    write_tsv("estMOI/high_MOI_samples.tsv")
+
+
+```
+
+#############################################################################################################
+
+## Normalise VCF and convert filtered vcf to bcf
+
+ - Ensure that multi-allelic calls are split (1st part)
+ - Left-align indels (2nd part)
+ - Set the ID field to a unique value: CHROM:POS:REF:ALT (3rd part)
+ 
+ --indiv-sort - specify how samples will be sorted - use to be consistent when adding metadata downstream 
+
+```{bash,eval=F}
+bcftools view PK_consensus_filtered_pass.vcf | \
+  sed 's/AD,Number=R/AD,Number=./' | \
+  bcftools norm -m-any | \
+  bcftools norm --check-ref w -f $FASTA/strain_A1_H.1.Icor.fasta | \
+  bcftools annotate -Ob -x ID -I +'%CHROM:%POS:%REF:%ALT:%ID' \
+  > PK_consensus_filtered_pass.bcf
+```
+
+## Convert to PLINK format 
+
+Generic PLINK function to produce generic PLINK files
+First create sample_order file
+
+```{bash,eval=F}
+bcftools view PK_consensus_filtered_pass.bcf | sed -n '/#CHROM/,$p' | head -n 1 | tr '\t' '\n' |  sed -n '/ERR2214837/,$p' | awk '{print $1 "\t" $1}' > sample_order.txt
+
+plink --bcf PK_consensus_filtered_pass.bcf \
+  --keep-allele-order \
+  --vcf-idspace-to _ \
+  --double-id \
+  --allow-extra-chr 0 \
+  --make-bed \
+  --indiv-sort file sample_order.txt \
+  --allow-no-sex \
+  --out Pk
+```
+
+## Add metadata to PLINK fam
+
+*Had to write an R script to manually add metadata as PLINK was being painful*
+
+```{bash,eval=F}
+sed 's/ /,/g' Pk.fam > Pk.csv
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/pheno_to_plink_fam.R
+sed 's/,/ /g' Pk.csv > Pk.fam
+```
+
+### pheno_to_plink_fam.R
+
+```{R,eval=F}
+# Packages
+library(tidyverse)
+library(janitor)
+library(data.table)
+
+# Meatdata
+Location_data <- readxl::read_xlsx("/g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/data/metadata/PK_Sabah_Sample_naming_indexes.xlsx") %>% 
+  select(1) %>%
+  add_column(Location = "Sabah") %>%
+  rename(Sample = sampleid) %>%
+  rbind(
+    read_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/data/metadata/Pk_clusters_metadata.csv") %>%
+      select(1, 3) %>%
+      rename(Location = area)
+  ) %>%
+  rbind(
+    read_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/data/metadata/Pk_clusters_peninsular_metadata.csv") %>%
+      select(2, 8) %>%
+      rename(Sample = ENA_accession_no_ES)
+  ) %>%
+  mutate(Location = str_replace(Location, " ", "_"))
+
+
+Plink_fam <- read_csv("Pk.csv", col_names=FALSE) %>%
+  select(-ncol(.)) %>%
+  mutate(Sample = str_remove(X2, "_DKD.*")) %>% 
+  left_join(Location_data) %>% 
+  select(-Sample) 
+
+write_csv(Plink_fam, "Pk.csv", col_names = FALSE)
+```
+
+## Use PLINK to create PCA and MDS data, and a distance matrix (identity-by-state)
+
+```{bash,eval=F}
+plink --bfile Pk --cluster --mds-plot 10 --out Pk
+plink --bfile Pk --pca --out Pk
+plink --bfile Pk --distance square --out Pk
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/ordination_plots.R
+```
+
+### ordination_plots.R
+
+```{R,eval=F}
+# Load packages
+library(tidyverse)
+library(ape)
+library(ggtree)
+
+# PCA
+
+## Read in data
+pca <- read_table("Pk.eigenvec", col_names=F) %>%
+    select(-1) %>%
+    mutate(X2 = str_remove(X2, "_DK.*")) %>%
+    rename("sampleid" = "X2") %>%
+    rename_at(vars(starts_with("X")), ~str_replace(., "X.*", paste0("PC", seq_along(.))))
+
+eigenval <- scan("Pk.eigenval")
+
+## Add metadata 
+pca <- pca %>%
+    left_join(read_csv("Pk.csv", col_names = FALSE) %>% 
+        select(1,6) %>%
+        rename(sampleid = X1) %>%
+        rename(Location = X6) %>%
+        mutate(sampleid = str_remove(sampleid, "_DK.*")))
+
+## Percentage variance explained by each PC
+pve_plot <- data.frame(PC = 1:20, pve = eigenval/sum(eigenval)*100) %>%
+    ggplot(aes(PC, pve)) + 
+    geom_bar(stat = "identity") + 
+    ylab("Percentage variance explained") + 
+    theme_light()
+
+ggsave("Percentage_variance_explained.png", dpi=600, pve_plot)
+
+## Plot PCA
+pve <- data.frame(PC = 1:20, pve = eigenval/sum(eigenval)*100)
+
+pca_plot <- ggplot(pca, aes(PC1, PC2, colour = Location)) + 
+    geom_point(size = 3) +
+    scale_color_viridis_d() +
+    coord_equal() + 
+    theme_light() + 
+    xlab(paste0("PC1 (", signif(pve$pve[1], 3), "%)")) + 
+    ylab(paste0("PC2 (", signif(pve$pve[2], 3), "%)"))
+
+ggsave("PCA.png", dpi = 600, pca_plot)
+
+
+# MDS
+
+## Read in data
+mds <- read_table("Pk.mds", col_names=T) %>%
+    select(-c("FID", "X14")) %>%
+    mutate(IID = str_remove(IID, "_DK.*")) %>%
+    rename("sampleid" = "IID") %>%
+    rename_at(vars(starts_with("C")), ~str_replace(., "C", "MDS"))
+
+## Add metadata 
+mds <- mds %>%
+    left_join(read_csv("Pk.csv", col_names = FALSE) %>% 
+        select(1,6) %>%
+        rename(sampleid = X1) %>%
+        rename(Location = X6) %>%
+        mutate(sampleid = str_remove(sampleid, "_DK.*")))
+
+## Plot MDS
+mds_plot <- ggplot(mds, aes(MDS1, MDS2, colour = Location)) + 
+    geom_point(size = 3) +
+    scale_color_viridis_d() +
+    coord_equal() + 
+    theme_light()
+
+ggsave("MDS.png", dpi=600, mds_plot)
+
+
+# Neighbour-joining tree
+
+## Create distance matrix from PLINK data and built NJT
+NJT_ID <- read_table("Pk.dist.id", col_names=F) %>%
+    as.data.frame() %>%
+    mutate_all(~str_remove(., "_DKD.*")) 
+
+NJT_matrix <- read_table("Pk.dist", col_names=NJT_ID$X1) %>%
+    as.data.frame() %>%
+    add_column(Row_Names = NJT_ID$X1) %>%
+    column_to_rownames("Row_Names") %>%
+    as.matrix()
+
+NJT_tree <- nj(NJT_matrix)
+
+## Plot tree
+# options(ignore.negative.edge=TRUE)
+NJT_metadata <- read_csv("Pk.csv", col_names = FALSE) %>%
+    select(1, 6 ) %>%
+    rename(Sample = X1) %>%
+    rename(Location = X6) %>%
+    mutate(Sample = str_remove(Sample, "_DKD.*")) %>%
+    mutate_if(is.character, as.factor) %>%
+    mutate(Sabah = ifelse(Location == "Sabah", "Sabah", "Other"))
+
+options(ignore.negative.edge=TRUE)
+
+NJT_tree_plot <- ggtree(NJT_tree, layout = "circular", size = 0.5, aes(colour = Location)) %<+% NJT_metadata +
+    geom_tippoint(aes(colour = Location, shape = Sabah)) + 
+    theme(legend.position = "right", 
+        legend.title = element_blank(), 
+        legend.key = element_blank()) 
+    
+ggsave("NJT_tree.png", dpi = 600, height = 8, width = 16, NJT_tree_plot)
+```
+
+## Remove duplicates
+
+```{bash,eval=F}
+cut -f 2 Pk.bim | sort | uniq -d > Pk.dups
+```
+
+## Calculate minor allele frequency, genotypic missingness and Fst"
+
+```{eval=F}
+plink --bfile Pk \
+  --freq \
+  --missing \
+  --allow-no-sex \
+  --out Pk
+################################################################ Fst statistic
+plink --bfile Pk \
+  --within 
+  --fst \
+  --allow-no-sex \
+  --out Pk
+```
+
+ - N_MISS =Number of missing SNPs
+ - N_GENO =Number of non-obligatory missing genotypes
+ - F_MISS =Proportion of missing SNPs
+
+## Plot distribution of MAF and genotypic missingness
+
+```{bash,eval=F}
+Rscript /g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/Exploratory_analyses/PLINK/maf_dist.R
+Rscript /g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/Exploratory_analyses/PLINK/miss_dist.R
+```
+
+### maf_dist.R
+
+```{R,eval=F}
+# Load packages
+library(tidyverse)
+
+# Read in data
+pk_maf <- read_table("Pk.frq", col_names=T) 
+
+# Plot MAF by chr
+pk_maf_plot <- pk_maf %>% 
+    mutate(SNP = str_remove(SNP, ":.*"),
+        SNP = str_remove(SNP, "ordered_"),
+        SNP = str_remove(SNP, "new_"),
+        SNP = str_remove(SNP, "_v2"),
+        SNP = str_remove(SNP, "A1.*")) %>%
+    group_by(SNP) %>%
+    summarise(MAF = mean(MAF)) %>%
+    ggplot(aes(SNP, MAF)) +
+    geom_col() +
+    theme(axis.text.x = element_text(angle = 45))
+
+ggsave("Pk_maf_plot.png", dpi = 600, pk_maf_plot)
+
+# Summary stats
+
+pk_maf %>% 
+    mutate(SNP = str_remove(SNP, ":.*")) %>%
+    group_by(SNP) %>%
+    summarise(MAF_mean = mean(MAF),
+            MAF_SD = sd(MAF),
+            MAF_SE = (sd(MAF))/sqrt(n())) %>%
+rbind(
+    pk_maf %>%
+        summarise(MAF_mean = mean(MAF),
+                MAF_SD = sd(MAF),
+                MAF_SE = (sd(MAF))/sqrt(n())) %>%
+        add_column(SNP = "Total")
+    ) %>%
+    write_csv(col_names = T, "pk_maf_summary.csv")
+```
+
+### miss_dist.R
+
+```{R,eval=F}
+# Load packages
+library(tidyverse)
+library(data.table)
+
+
+# Sample-based missing data
+## Read in data
+sample_mis <- read_table("Pk.imiss", col_names=T) 
+
+## Plot dist by sample
+sample_miss_plot <- sample_mis %>% 
+    rename(Sample = IID,
+        Geno_Miss = F_MISS) %>%
+    mutate(Sample = str_remove(Sample, "DKD.*"),
+            Sample = str_remove(Sample, "PK_SB_DNA_")) %>%
+    select(2:ncol(.)) %>%
+    ggplot(aes(x = Sample, y = Geno_Miss, fill = ifelse(Geno_Miss > 0.75, ">0.75", "<0.75"))) +
+    geom_col() +
+    scale_fill_manual(values = c("#440154FF", "#1F968BFF"))  +
+    theme(axis.text.x = element_text(angle = 90))  +
+    labs(fill = "Threshold")
+    
+
+ggsave("sample_miss_plot.png", width = 12, dpi = 600, sample_miss_plot)
+
+# Variant-based missing data
+## Read in data
+var_miss <- read_table("Pk.lmiss", col_names=T) %>%
+    mutate(CHR = str_remove(SNP, ":.*")) %>%
+    rename(Geno_Miss = F_MISS,
+            Chr = CHR)
+
+## Plot dist by variant and coloured by chromosome
+var_miss_plot <- var_miss %>% 
+    ggplot(aes(x = SNP, y = Geno_Miss, fill =  Chr)) +
+    geom_col() +
+    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+    scale_fill_viridis_d(option = "D") 
+
+ggsave("var_miss_plot.png", width = 12, dpi = 600, var_miss_plot)
+
+
+## Plot dist by chromomsome averges for variants
+chr_miss_plot <- var_miss %>% 
+    group_by(Chr) %>%
+    summarise(Geno_mean = mean(Geno_Miss)) %>%
+    ggplot(aes(x = Chr, y = Geno_mean, fill =  Chr)) +
+    geom_col() +
+    theme(axis.text.x = element_text (angle = 90), legend.position="none") +
+    scale_fill_viridis_d(option = "D") +
+    ylab("Mean variant geno-miss per chromosome ")
+
+ggsave("chr_miss_plot.png", width = 12, dpi = 600, chr_miss_plot)
+
+##########################################################################################################################
+# Combined summary stats - MAF and GM
+
+maf_miss_summary <- read_csv("pk_maf_summary.csv") %>% 
+    rename(Chr = SNP) %>%
+    left_join(
+        var_miss %>% 
+            group_by(Chr) %>%
+            summarise(Miss_mean = mean(Geno_Miss),
+            Miss_SD = sd(Geno_Miss),
+            Miss_SE = (sd(Geno_Miss))/sqrt(n())) %>%
+        rbind(
+            var_miss %>%
+                summarise(Miss_mean = mean(Geno_Miss),
+                Miss_SD = sd(Geno_Miss),
+                Miss_SE = (sd(Geno_Miss))/sqrt(n())) %>%
+            add_column(Chr = "Total")) 
+    )
+
+write_csv(maf_miss_summary, "pk_maf_miss_summary.csv")
+```
+
+## Create PLINK MAC (minor allele count) report"
+
+ - A1 Allele 1 (usually minor)
+ - A2 Allele 2 (usually major)
+ - C1 Allele 1 count
+ - C2 Allele 2 count
+ - G0 Missing genotype count 
+
+```{eval=F}
+plink --bfile Pk \
+  --freq counts \
+  --allow-no-sex \
+  --out Pk
+```
+
+### Plot distribution of MAC
+
+```{bash,eval=F}
+Rscript /g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/Exploratory_analyses/PLINK/maf_count_dist.R
+```
+
+```{R,eval=F}
+# Load packages
+library(tidyverse)
+
+# Read in data
+pk_maf <- read_table("Pk.frq.counts", col_names = T) %>%
+    mutate(CHR = str_remove(SNP, ":.*")) %>%
+    rename(minor_count = C1, major_count = C2)
+
+# Plot MAF by chr
+pk_maf_plot <- pk_maf %>% 
+    mutate(CHR = str_remove(CHR, ":.*"),
+        CHR = str_remove(CHR, "ordered_"),
+        CHR = str_remove(CHR, "new_"),
+        CHR = str_remove(CHR, "_v2"),
+        CHR = str_remove(CHR, "A1.*")) %>%
+    group_by(CHR) %>%
+    summarise(minor_count = mean(minor_count)) %>%
+    ggplot(aes(x = CHR, y = minor_count, fill = CHR)) +
+    geom_col() +
+    theme(axis.text.x = element_text(angle = 45), legend.position = "none") +
+    scale_fill_viridis_d() 
+
+ggsave("Pk_maf_counts_plot_chr.png", dpi = 600, pk_maf_plot, width = 10)
+
+# Summary stats
+
+pk_maf %>% 
+    mutate(SNP = str_remove(SNP, ":.*")) %>%
+    group_by(SNP) %>%
+    summarise(MAC_mean = mean(minor_count),
+            MAC_SD = sd(minor_count),
+            MAC_SE = (sd(minor_count))/sqrt(n()),
+            MAC_min = min(minor_count),
+            MAC_max = max(minor_count)) %>%
+rbind(
+    pk_maf %>%
+        summarise(MAC_mean = mean(minor_count),
+                MAC_SD = sd(minor_count),
+                MAC_SE = (sd(minor_count))/sqrt(n()),
+                MAC_min = min(minor_count),
+            MAC_max = max(minor_count)) %>%
+        add_column(SNP = "Total")
+    ) %>%
+    write_csv(col_names = T, "pk_maf_counts_summary.csv")
+```
+
+
+##################################################################################################
+
+# TBC
+
+## Checking for runs of hetero/homozygosity 
+
+First recode PLINK files to create ped and map files
+
+```{bash,eval=F}
+plink --bfile Pk --recode --out Pk
+```
+
+### Plot runs of hetero/homozygosity 
+https://www.rdocumentation.org/packages/detectRUNS/versions/0.9.6/topics/slidingRUNS.run
+
+
+Arguments for calculating runs:
+ - genotypeFile - .ped file path
+ - mapFile - .map
+ - windowSize - size of sliding window/number of SNP loci (default = 15)
+ - threshold - threshold of overlapping windows of the same state (homozygous/heterozygous) to call a SNP in a RUN (default = 0.05)
+ - minSNP - min n. of SNP in a RUN (default = 3)
+ - ROHet - homo or heterozygosity?
+ - maxOppWindow - max n. of homozygous/heterozygous SNP in sliding window (default = 1)
+ - maxMissWindow - max n. of missing SNP in the sliding window (default = 1)
+ - maxGap - max distance between consecutive SNPs to be still considered a potential run (default = 10^6 bps)
+ - minLengthBps - minimum number of bps to be a run (defaults to 1000 bps = 1 kbps)
+ - minDensity - minimum n. of SNP per kbps (defaults to 0.1 = 1 SNP every 10 kbps)
+ - maxOppRun - max n of opposite genotype SNPs in the run (optional - if NULL or zero, you're assuming that the mapping is 'prefect')
+ - maxMissRun - max n of missing SNPs in the run (optional)
+
+Arguments for plotting runs"
+ - runs - df of results on detected runs
+ - Class - group of length (in Mbps) by class (default: 0-2, 2-4, 4-8, 8-16, >16)
+ - snpInRuns - TRUE/FALSE (default): should the function snpInsideRuns be called to compute the proportion of times each SNP falls inside a run in the group/population?
+ 
+*NB* We were unable to detect any runs of heterozygosity using the default settings.
+
+```{bash,eval=F}
+Rscript /g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/Exploratory_analyses/PLINK/runs_of_hetero.R
+```
+
+### runs_of_hetero.R
+
+```{R,eval=F}
+
+```
+
+##################################################################################################
+
+## Explore the application of filters and plot (manhattan and QQ) the results
+
+### Genotypic missingness
+
+ - exclude variants with > 10% missing alleles
+ - first recode creates the intial .map and .ped files
+ - recode generates new .ped and .map files
+ - --make-bed generates .bed, .bim and .fam files
+ - -mind filters per sample
+ - -geno filters per variant
+
+*NB* 10 % filter for variants drops us from *1216185* to *46128*.
+
+```{bash,eval=F}
+plink --bfile Pk --recode --out Pk
+plink --file Pk --geno 0.1 --recode --out cleaned
+plink --file Pk --geno 0.1 --make-bed --out cleaned
+```
+
+#### Create manhattan and QQ plots again to observe the effect
+
+```{bash,eval=F}
+plink --bfile cleaned --assoc --out Pk --adjust qq-plot --exclude Pk.dups --allow-no-sex --ci 0.95
+Rscript /g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/Exploratory_analyses/PLINK/manhattan.R
+```
+
+### Allele frequency
+
+MAF (=Minor Allele Frequency) = P(geno=1, Aa)x0.5 + P(geno=2, aa)
+
+```{bash,eval=F}
+plink --file Pk --maf 0.01 --max-maf 0.4 --recode --out cleaned
+plink --file Pk --maf 0.01 --max-maf 0.4 --make-bed --out cleaned
+```
+
+#### Create manhattan and QQ plots again to observe the effect
+
+```{bash,eval=F}
+plink --bfile cleaned --assoc --out Pk --adjust qq-plot --exclude Pk.dups --allow-no-sex --ci 0.95
+Rscript /g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/Exploratory_analyses/PLINK/manhattan.R
+```
+
+### Allele frequency & MAF
+
+MAF (=Minor Allele Frequency) = P(geno=1, Aa)x0.5 + P(geno=2, aa)
+
+```{bash,eval=F}
+plink --file Pk --maf 0.01 --max-maf 0.4 --geno 0.1 --recode --out cleaned
+plink --file Pk --maf 0.01 --max-maf 0.4 --geno 0.1 --make-bed --out cleaned
+```
+
+#### Create manhattan and QQ plots again to observe the effect
+
+```{bash,eval=F}
+plink --bfile cleaned --assoc --out Pk --adjust qq-plot --exclude Pk.dups --allow-no-sex --ci 0.95
+Rscript /g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/Exploratory_analyses/PLINK/manhattan.R
+```
+
+############################################################################################################# 
+
+# PLAY
+
+# REMOVE WHEN FINISHED
+
+plink --file Pk --maf 0.01 --geno 0.1 --recode --out cleaned
+plink --file Pk --maf 0.01 --geno 0.1 --make-bed --out cleaned
+plink --bfile cleaned --assoc --out Pk --adjust qq-plot --exclude Pk.dups --allow-no-sex --ci 0.95
+Rscript /g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/Exploratory_analyses/PLINK/manhattan.R
+
+############################################################################################################# 
+
+
+## Hardy-Weinberg equilibrium
+
+H-W = states that allele and genotype frequencies in a population will remain constant from generation to generation in the absence of other evolutionary influences.
+We don't plan to use this as a threshold, as it essentially filters out variants that are under evolutionary pressures, which we actually want. Makes more sense in a human context.
+However, we can still calculate the values to observe selective pressures.
+
+ - GENO = Genotype counts
+ - A1 = Minor allele code 
+ - A2 = Major allele code
+ - O(HET) = Observed heterozygosity
+ - E(HET) = Expected heterozygosity
+ - P = H-W p-value
+
+```{bash,eval=F}
+plink --bfile cleaned --allow-no-sex --hardy
+```
+
+If you want use as a filter for P <= 0.1
+ - extract - `plink --bfile mydata --hwe 0.1` 
+ - asymptotic - `plink --bfile mydata --hwe2 0.1` 
+
+
+## Linkage-disequilibrium
+
+If you want an LD report: https://plink.readthedocs.io/en/latest/plink_ex/
+*Note* Requires a lot of resources (for example, when applying to my clean dataset of ~45K variants PLINK tried to use 47 threads and 128GB of ram)
+plink --bfile cleaned --allow-no-sex --r2 dprime inter-chr with-freqs --ld-window-r2 0.005
+
+
+#
+
+Matt's README.gwas
+
+#Run quick_anno
+#First need to do quick_annotate_vcf
+./quick_annotate_vcf.pl -vcf_in AAA_gwas_norm.vcf -keep_zyg -> gives AAA_gwas_norm_chr.txt for next step 
+
+#Create assoc file
+cat plink_AAA_filter.assoc | shrinkwrap | tr " " "\t" > plink_AAA_filter.assoc.tsv
+
+#Annotate
+./annotate_gwas.pl -var_file AAA_gwas_norm_chr.txt -fam_file AAA_gwas_norm_AAA.fam -assoc_file AAA_GWAS_all.assoc.tsv -sample_vcf_order vcf_sample_order -chr 21

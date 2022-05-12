@@ -937,6 +937,118 @@ echo "Finished"
 
 # 05_VARIANT_FILTERING
 
+## Plot distribution of variant quality
+File(s):
+/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/05_Variant_filtering/Plot_quality_scores.pbs
+/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/05_Variant_filtering/Plot_quality_scores.R
+
+Version(s):
+R/4.1.0 & GATK/3.8.1
+
+Submission:
+Single PBS script, with nested R script.
+
+Notes:
+These filtering parameters are based on those appalied to *P. vivax* by the Sanger Institute, but with the values adjusted for the distribution of quality scrores in this dataset. The filters had to be relaxed as the archived samples reduced the average quality of variants.
+
+Script:
+
+```{R,eval=F}
+#!/bin/bash
+#PBS -P pq84
+#PBS -q normalbw
+#PBS -N Variant_quality
+#PBS -j oe
+#PBS -m ae
+#PBS -l walltime=1:00:00,mem=40GB,ncpus=10
+#PBS -l storage=gdata/pq84+scratch/pq84
+#PBS -M jacob.westaway@menzies.edu.au
+
+echo "---------------------------------------"
+echo "PBS: Job identifier is $PBS_JOBID"
+echo "PBS: Job name is $PBS_JOBNAME"
+echo "Pk pop gen in Malaysia"
+
+echo "---------------------------------------"
+echo "---------------------------------------"
+echo 'Change to working directory and set env variables'
+OUTDIR="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/filtered/quality/"
+PICARD="/g/data/pq84/bin/picard/build/libs/picard.jar"
+INDEXTDIR="/g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/data/ref_genomes/PKA1H1/fasta/strain_A1_H.1.Icor.fasta"
+GATK="/g/data/pq84/bin/GenomeAnalysisTK-3.8-1-0/GenomeAnalysisTK.jar"
+module load R/4.1.0 
+export R_LIBS_USER="/g/data/pq84/R"
+
+mkdir $OUTDIR
+cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/filtered/
+
+echo "---------------------------------------"
+echo 'Make diagnostic tables for Variants Scores - snps'
+
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T VariantsToTable \
+    -R $INDEXTDIR \
+    -V GVCFall_SNPs.vcf \
+    -F CHROM -F POS -F QUAL -F QD -F DP -F MQ -F GQ -F MQRankSum -F FS -F ReadPosRankSum -F SOR \
+    -o $OUTDIR/GVCFall_SNPs.table
+
+
+echo "---------------------------------------"
+echo 'Make diagnostic tables for Variants Scores - indels'
+
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T VariantsToTable \
+    -R $INDEXTDIR \
+    -V GVCFall_INDELs.vcf \
+    -F CHROM -F POS -F QUAL -F QD -F DP -F MQ -F GQ -F MQRankSum -F FS -F ReadPosRankSum -F SOR \
+    -o $OUTDIR/GVCFall_INDELs.table
+
+echo "---------------------------------------"
+echo 'Plot with R'
+
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/05_Variant_filtering/Plot_quality_scores.R
+
+echo "---------------------------------------"
+echo 'Finished'
+```
+
+```{R,eval=F}
+# load packages 
+library(tidyverse)
+library(knitr)
+library(gridExtra)
+
+# Plots
+
+variant_plots <- function(snp_filepath, indel_filepath){
+VCF <- read.csv(snp_filepath, header = T, na.strings=c("","NA"), sep = "\t") %>% 
+  add_column(Variant = "SNPs")  %>% 
+  rbind(
+    read.csv(indel_filepath, header = T, na.strings=c("","NA"), sep = "\t") %>% 
+      add_column(Variant = "Indels") 
+  )
+
+QD <- ggplot(VCF, aes(x=QD, fill=Variant)) + 
+  geom_density(alpha=.3) +
+  geom_vline(xintercept=20, size=0.7) 
+
+FS <- ggplot(VCF, aes(x=FS, fill=Variant)) + 
+  geom_density(alpha=.3) +
+  geom_vline(xintercept=2, size=0.7) + 
+  coord_cartesian(xlim = c(0,100)) 
+
+MQ <- ggplot(VCF, aes(x=MQ, fill=Variant)) + 
+  geom_density(alpha=.3) +
+  geom_vline(xintercept=59, size=0.7) 
+
+grid.arrange(QD, FS, MQ)
+}
+
+variant_plots <- variant_plots("quality/GVCFall_SNPs.table", "quality/GVCFall_INDELs.table")
+
+ggsave("quality/Variant_quality_distribution.png", dpi = 600, variant_plots)
+```
+
 File(s):  
 /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/05_Variant_filtering/Filter_variants.pbs
 
@@ -947,35 +1059,121 @@ Submission:
 Single PBS script.
 
 Notes:
-These filtering parameters are based on those appalied to *P. vivax* by the Sanger Institute, but with the values adjusted for the distribution of quality scrores in our truth set.
+These filtering parameters are based on those appalied to *P. vivax* by the Sanger Institute, but with the values adjusted for the distribution of quality scrores in this dataset. The filters had to be relaxed as the archived samples reduced the average quality of variants.
 
 Script:
 
 ```{R,eval=F}
+#!/bin/bash
+#PBS -P pq84
+#PBS -q normalbw
+#PBS -N Filter_variants
+#PBS -j oe
+#PBS -m ae
+#PBS -l walltime=12:00:00,mem=80GB,ncpus=10
+#PBS -l storage=gdata/pq84+scratch/pq84
+#PBS -M jacob.westaway@menzies.edu.au
+
+echo "---------------------------------------"
+echo "PBS: Job identifier is $PBS_JOBID"
+echo "PBS: Job name is $PBS_JOBNAME"
+
+echo "---------------------------------------"
+echo "Define paths and load modules"
+module load java/jdk-8.40 
+
+echo "---------------------------------------"
+echo "Define paths and change to working directory"
+PICARD="/g/data/pq84/bin/picard/build/libs/picard.jar"
+INDEXTDIR="/g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/data/ref_genomes/PKA1H1/fasta/strain_A1_H.1.Icor.fasta"
+GATK="/g/data/pq84/bin/GenomeAnalysisTK-3.8-1-0/GenomeAnalysisTK.jar"
+INDIR="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/consensus/"
+OUTDIR="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/filtered/"
+
+mkdir $OUTDIR
+cd $INDIR
+
+echo "---------------------------------------"
+echo 'Correct bcftools introduced changes to make java happy'
+echo "---------------------------------------"
+zcat Consensus.vcf.gz | sed 's/MQ=nan/MQ=NaN/g' > Consensus_fixed.vcf
+
+echo "---------------------------------------"
+echo 'SUBSET TO VARIANT TYPE'
+echo "---------------------------------------"
+
+echo "---------------------------------------"
+echo "SNPs"
+
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T SelectVariants \
+    -R $INDEXTDIR \
+    -V Consensus_fixed.vcf \
+    -selectType SNP \
+    -o $OUTDIR/GVCFall_SNPs.vcf
+
+echo "---------------------------------------"
+echo "Indels"
+
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T SelectVariants \
+    -R $INDEXTDIR \
+    -V Consensus_fixed.vcf \
+    -selectType INDEL \
+    -o $OUTDIR/GVCFall_INDELs.vcf
+
+echo "---------------------------------------"
+echo 'FILTER'
+echo "---------------------------------------"
+
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T VariantFiltration \
+    -V $INDIR/Consensus_fixed.vcf \
+    -R $INDEXTDIR \
+    -filter "QD < 15.0" -filterName "QD15" \
+    -filter "FS > 1.0" -filterName "FS1" \
+    -filter "MQ < 40.0" -filterName "MQ40" \
+    -o $OUTDIR/PK_consensus_FILTERED.vcf
+
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T VariantFiltration \
+    -V $OUTDIR/GVCFall_SNPs.vcf \
+    -R $INDEXTDIR \
+    -filter "QD < 15.0" -filterName "QD15" \
+    -filter "FS > 1.0" -filterName "FS1" \
+    -filter "MQ < 40.0" -filterName "MQ40" \
+    -o $OUTDIR/FILTERED_SNPs.vcf
+
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T VariantFiltration \
+    -V $OUTDIR/GVCFall_INDELs.vcf \
+    -R $INDEXTDIR \
+     -filter "QD < 15.0" -filterName "QD15" \
+    -filter "FS > 1.0" -filterName "FS1" \
+    -filter "MQ < 40.0" -filterName "MQ40" \
+    -o $OUTDIR/FILTERED_INDELs.vcf
+
+echo "---------------------------------------"
+echo 'Clean up'
+echo "---------------------------------------"
+rm -f Consensus_fixed.vcf
+
+echo "---------------------------------------"
+echo "Finsihed"
 ```
 
-# 06_VARIANT_ANNOTATION
+# 06_Analysis
 
 File(s):  
-/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Variant_annotation/annotate_variants.pbs
 
 Version(s):
-perl/5.26 & ensembl vep/105.0
+
 
 Submission:
 Single PBS script.
 
 Notes:
 
-Installing vep:
-    - GitHub URL: https://github.com/Ensembl/ensembl-vep
-    - To install vep on Gadi requires a gcc compiler, but the Annobin requirement is not installed and must be done so before using gcc to compile vep.
-    - Also require PERL to install cpanM, which can then be used to install the Perl libraries need by vep.
-
-We first needed to modify our GFF file:
-    - Change the contig names to match the reference genome and VCF files.
-    - Substitute protein_coding_gene for gene.
-    - Sort and modfiy the structure to suit ensembl requirements.
 
 Script:
 

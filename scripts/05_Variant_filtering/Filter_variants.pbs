@@ -64,27 +64,27 @@ java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
     -T VariantFiltration \
     -V $INDIR/Consensus_fixed.vcf \
     -R $INDEXTDIR \
-    -filter "QD < 20.0" -filterName "QD2" \
-    -filter "FS > 2.0" -filterName "FS60" \
-    -filter "MQ < 59.0" -filterName "MQ40" \
+    -filter "QD < 15.0" -filterName "QD15" \
+    -filter "FS > 1.0" -filterName "FS1" \
+    -filter "MQ < 40.0" -filterName "MQ40" \
     -o $OUTDIR/PK_consensus_FILTERED.vcf
 
 java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
     -T VariantFiltration \
     -V $OUTDIR/GVCFall_SNPs.vcf \
     -R $INDEXTDIR \
-    -filter "QD < 20.0" -filterName "QD2" \
-    -filter "FS > 2.0" -filterName "FS60" \
-    -filter "MQ < 59.0" -filterName "MQ40" \
+    -filter "QD < 15.0" -filterName "QD15" \
+    -filter "FS > 1.0" -filterName "FS1" \
+    -filter "MQ < 40.0" -filterName "MQ40" \
     -o $OUTDIR/FILTERED_SNPs.vcf
 
 java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
     -T VariantFiltration \
     -V $OUTDIR/GVCFall_INDELs.vcf \
     -R $INDEXTDIR \
-    -filter "QD < 20.0" -filterName "QD2" \
-    -filter "FS > 2.0" -filterName "FS60" \
-    -filter "MQ < 59.0" -filterName "MQ40" \
+     -filter "QD < 15.0" -filterName "QD15" \
+    -filter "FS > 1.0" -filterName "FS1" \
+    -filter "MQ < 40.0" -filterName "MQ40" \
     -o $OUTDIR/FILTERED_INDELs.vcf
 
 echo "---------------------------------------"
