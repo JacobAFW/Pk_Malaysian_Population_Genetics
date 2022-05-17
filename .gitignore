@@ -4,6 +4,7 @@
 # But not these files...
 !.gitignore
 !scripts/
+!scripts/*
 !scripts/*/*
 !scripts/*/*/*
 !scripts/*/*/*/*
@@ -16,6 +17,7 @@
 !README.md
 !Malaysian_pop_gen_workflow.Rmd
 !shared_files/
+!shared_files/*
 !shared_files/*/*
 
 # ...even if they are in subdirectories
