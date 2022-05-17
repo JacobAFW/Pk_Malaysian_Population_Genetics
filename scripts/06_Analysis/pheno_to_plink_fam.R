@@ -8,15 +8,19 @@ Location_data <- readxl::read_xlsx("/g/data/pq84/malaria/Parasite_and_human_gene
   select(1) %>%
   add_column(Location = "Sabah") %>%
   rename(Sample = sampleid) %>%
+  add_column(Cluster = "Sabah") %>% 
   rbind(
     read_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/data/metadata/Pk_clusters_metadata.csv") %>%
-      select(1, 3) %>%
-      rename(Location = area)
+      select(1, 3, 5) %>% 
+      rename(Location = area) %>%
+      mutate(Cluster = str_remove(Group, "-Pk")) %>% 
+      select(-Group) 
   ) %>%
   rbind(
     read_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/data/metadata/Pk_clusters_peninsular_metadata.csv") %>%
       select(2, 8) %>%
-      rename(Sample = ENA_accession_no_ES)
+      rename(Sample = ENA_accession_no_ES) %>%
+      add_column(Cluster = "Peninsular") 
   ) %>%
   mutate(Location = str_replace(Location, " ", "_"))
 

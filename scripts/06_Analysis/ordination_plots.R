@@ -17,10 +17,12 @@ eigenval <- scan("Pk.eigenval")
 ## Add metadata 
 pca <- pca %>%
     left_join(read_csv("Pk.csv", col_names = FALSE) %>% 
-        select(1,6) %>%
+        select(1, 6, 7) %>%
         rename(sampleid = X1) %>%
         rename(Location = X6) %>%
+        rename(Cluster = X7) %>%
         mutate(sampleid = str_remove(sampleid, "_DK.*")))
+
 
 ## Percentage variance explained by each PC
 pve_plot <- data.frame(PC = 1:20, pve = eigenval/sum(eigenval)*100) %>%
@@ -34,7 +36,7 @@ ggsave("Percentage_variance_explained.png", dpi=600, pve_plot)
 ## Plot PCA
 pve <- data.frame(PC = 1:20, pve = eigenval/sum(eigenval)*100)
 
-pca_plot <- ggplot(pca, aes(PC1, PC2, colour = Location)) + 
+pca_plot <- ggplot(pca, aes(PC1, PC2, colour = Cluster)) + 
     geom_point(size = 3) +
     scale_color_viridis_d() +
     coord_equal() + 
@@ -57,13 +59,14 @@ mds <- read_table("Pk.mds", col_names=T) %>%
 ## Add metadata 
 mds <- mds %>%
     left_join(read_csv("Pk.csv", col_names = FALSE) %>% 
-        select(1,6) %>%
+        select(1, 6, 7) %>%
         rename(sampleid = X1) %>%
         rename(Location = X6) %>%
+        rename(Cluster = X7) %>%
         mutate(sampleid = str_remove(sampleid, "_DK.*")))
 
 ## Plot MDS
-mds_plot <- ggplot(mds, aes(MDS1, MDS2, colour = Location)) + 
+mds_plot <- ggplot(mds, aes(MDS1, MDS2, colour = Cluster)) + 
     geom_point(size = 3) +
     scale_color_viridis_d() +
     coord_equal() + 
@@ -90,19 +93,34 @@ NJT_tree <- nj(NJT_matrix)
 ## Plot tree
 # options(ignore.negative.edge=TRUE)
 NJT_metadata <- read_csv("Pk.csv", col_names = FALSE) %>%
-    select(1, 6 ) %>%
+    select(1, 6, 7) %>%
     rename(Sample = X1) %>%
     rename(Location = X6) %>%
+    rename(Cluster = X7) %>%
     mutate(Sample = str_remove(Sample, "_DKD.*")) %>%
     mutate_if(is.character, as.factor) %>%
-    mutate(Sabah = ifelse(Location == "Sabah", "Sabah", "Other"))
+    mutate(Region = ifelse(Location == "Sabah" | Location == "Betong" | Location == "Kapit" | Location == "Sarikei", "Borneo", "Peninsular")) 
 
 options(ignore.negative.edge=TRUE)
 
 NJT_tree_plot <- ggtree(NJT_tree, layout = "circular", size = 0.5, aes(colour = Location)) %<+% NJT_metadata +
-    geom_tippoint(aes(colour = Location, shape = Sabah)) + 
+    geom_tippoint(aes(colour = Location, shape = Region)) + 
     theme(legend.position = "right", 
         legend.title = element_blank(), 
         legend.key = element_blank()) 
     
-ggsave("NJT_tree.png", dpi = 600, height = 8, width = 16, NJT_tree_plot)
+ggsave("NJT_tree_location.png", dpi = 600, height = 8, width = 16, NJT_tree_plot)
+
+NJT_tree_plot <- ggtree(NJT_tree, layout="circular", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
+    theme(legend.position = "right", 
+        legend.title = element_blank(), 
+        legend.key = element_blank()) 
+    
+ggsave("NJT_tree_cluster_rooted.png", dpi = 600, height = 8, width = 16, NJT_tree_plot)
+
+NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
+    theme(legend.position = "right", 
+        legend.title = element_blank(), 
+        legend.key = element_blank()) 
+    
+ggsave("NJT_tree_cluster_unrooted.png", dpi = 600, height = 8, width = 16, NJT_tree_plot)

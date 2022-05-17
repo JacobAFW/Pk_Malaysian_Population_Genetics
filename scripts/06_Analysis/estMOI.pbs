@@ -16,7 +16,7 @@ echo "---------------------------------------"
 echo "Paths to required software & load modules"
 module load bcftools/1.12
 module load java/jdk-8.40
-export PATH=$PATH:/g/data/pq84/bin/estMOI 
+module load samtools/1.12 
 
 echo "---------------------------------------"
 echo "Environment variables"
@@ -24,7 +24,7 @@ cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses
 GATK="/g/data/pq84/bin/GenomeAnalysisTK-3.8-1-0/GenomeAnalysisTK.jar" 
 INDEXTDIR="/g/data/pq84/malaria/data/ref_genomes/PKA1H1/fasta/strain_A1_H.1.Icor.fasta"
 BAM="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/03_Bam-pre/final_bam/"
-VCF="/g/data/pq84/malaria/Pk_clusters/outputs/04_Variant_calling/gatk"
+VCF="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/filtered/"
 OUTDIR="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/estMOI"
 mkdir $OUTDIR
 
@@ -33,7 +33,7 @@ echo "Subset consensus for variants the passed filters"
 
 java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
     -T SelectVariants \
-    -R $FASTA/strain_A1_H.1.Icor.fasta \
+    -R $INDEXTDIR \
     -V $VCF/FILTERED_SNPs.vcf  \
     --excludeFiltered \
     -o PK_consensus_filtered_pass.vcf
