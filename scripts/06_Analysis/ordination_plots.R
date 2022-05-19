@@ -77,7 +77,7 @@ ggsave("MDS.png", dpi=600, mds_plot)
 
 # Neighbour-joining tree
 
-## Create distance matrix from PLINK data and built NJT
+## Create distance matrix from PLINK data and build NJT
 NJT_ID <- read_table("Pk.dist.id", col_names=F) %>%
     as.data.frame() %>%
     mutate_all(~str_remove(., "_DKD.*")) 

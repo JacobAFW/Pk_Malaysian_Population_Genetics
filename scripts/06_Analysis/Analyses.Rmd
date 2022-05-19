@@ -357,13 +357,23 @@ MAF (=Minor Allele Frequency) = P(geno=1, Aa)x0.5 + P(geno=2, aa)
 
 ```{bash,eval=F}
 plink --bfile Pk --recode --out Pk
-plink --file Pk --maf 0.01 --geno 0.25 --make-bed --out cleaned
+plink --file Pk --maf 0.05 --geno 0.25 --make-bed --out cleaned
 ```
 
 Result:
+
+--maf 0.01 --geno 0.25
+
 102081 variants removed due to missing genotype data
 731000 variants removed due to minor allele threshold(s)
 842207 variants and 202 people pass filters and QC
+
+--maf 0.05 --geno 0.25
+
+102081 variants removed due to missing genotype data (--geno).
+1244443 variants removed due to minor allele threshold(s)
+(--maf/--max-maf/--mac/--max-mac).
+328764 variants and 202 people pass filters and QC.
 
 
 ## Use PLINK to create PCA and MDS data, and a distance matrix (identity-by-state)
