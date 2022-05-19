@@ -39,7 +39,7 @@ ggsave("var_miss_plot.png", width = 12, dpi = 600, var_miss_plot)
 var_miss_density <- var_miss %>% 
     ggplot(aes(x = Geno_Miss)) +
     geom_density(alpha=.3) +
-    geom_vline(xintercept = 0.1, colour = "#1F968BFF") 
+    geom_vline(xintercept = 0.25, colour = "#1F968BFF") 
 
 ggsave("variant_miss_density_plot.png", width = 12, dpi = 600, var_miss_density)
 

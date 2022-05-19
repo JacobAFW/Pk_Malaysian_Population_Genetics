@@ -10,7 +10,7 @@ pk_maf_SNP <- pk_maf  %>%
     ggplot(aes(x = SNP, y = MAF, fill = CHR)) +
     geom_col() +
     theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
-    geom_hline(yintercept = 0.05, colour = "#1F968BFF") +
+    geom_hline(yintercept = 0.01, colour = "#1F968BFF") +
     theme(axis.text.x = element_text(angle = 45), legend.position = "none") +
     scale_fill_viridis_d() 
 
@@ -20,7 +20,7 @@ ggsave("Pk_maf_plot.png", dpi = 600, pk_maf_SNP)
 pk_maf_density <- pk_maf  %>%
     ggplot(aes(x = MAF)) +
     geom_density(alpha=.3) +
-    geom_vline(xintercept = 0.05, colour = "#1F968BFF") 
+    geom_vline(xintercept = 0.01, colour = "#1F968BFF") 
 
 ggsave("Pk_maf_density.png", dpi = 600, pk_maf_density)
 

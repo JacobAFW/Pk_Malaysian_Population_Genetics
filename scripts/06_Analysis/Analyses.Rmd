@@ -23,12 +23,7 @@ GATK="/g/data/pq84/bin/GenomeAnalysisTK-3.8-1-0/GenomeAnalysisTK.jar"
 cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses
 ```
 
-## Filter for variants that pass filters
-
- - change the AD definition - the error occurs when there is a difference in the number of ALT alleles and the number of AD values
- - ensure multi-allelic calls are split
- - left-align indeals
- - Set the ID fieles to unique values
+## Filter for variants that pass filters and select chromosomes 1 to 14
 
 ```{bash,eval=F}
 java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
@@ -36,10 +31,11 @@ java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
     -R $FASTA/strain_A1_H.1.Icor.fasta \
     -V $VCF/FILTERED_SNPs.vcf  \
     --excludeFiltered \
+    --excludeIntervals PKNH_MIT_v2 --excludeIntervals new_API_strain_A1_H.1 \
     -o PK_consensus_filtered_pass.vcf
 ```
 
-#############################################################################################################
+############################################################################################################# WORK IN PROGRESS
 # TO Complete
 ## Calculate multiplicity of infection using moimix
 
@@ -57,8 +53,12 @@ Steps:
     - alternative way of assessing clonality is to estmate Fws, with Fws < 0.95 indicating clonal infection (low MOI)
 
 **NB.** Clean up VCF.
-First need to add annotation the ID column of your VCF file. Apprently this is the cause of an error I kept running into...
+Add annotation the ID column of your VCF file.
 bcftools annotate --threads 10 --set-id +'%CHROM\_%POS\_%REF\_%FIRST_ALT' PK_consensus_filtered_pass.vcf > moimix/PK_consensus_filtered_pass.vcf
+
+bcftools annotate --threads 10 --set-id +'%CHROM\_%POS\_%REF\_%FIRST_ALT' PK_consensus_filtered_pass.vcf | sed 's/Number=A/Number=./g' | bcftools view --max-ac :alt1 - > moimix/PK_consensus_filtered_pass_test.vcf
+
+
 
 Run below in R
 ```{R,eval=F}
@@ -69,7 +69,7 @@ isolates <- seqOpen("moimix/PK_consensus_filtered_pass.gds") # read into R
 seqSummary(isolates)
 sample.id <- seqGetData(isolates, "sample.id")
 seqCheck(isolates)
-head(seqGetData(isolates, "annotation/info/AC"))
+str(seqGetData(isolates, "annotation/info/AC"))
 
 head(seqGetData(isolates, "sample.id"))
 
@@ -106,7 +106,7 @@ fws_all %>%
 
 ```
 
-#############################################################################################################
+############################################################################################################# WORK IN PROGRESS
 
 ## Normalise VCF and convert filtered vcf to bcf
 
@@ -235,7 +235,7 @@ pk_maf_SNP <- pk_maf  %>%
     ggplot(aes(x = SNP, y = MAF, fill = CHR)) +
     geom_col() +
     theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
-    geom_hline(yintercept = 0.05, colour = "#1F968BFF") +
+    geom_hline(yintercept = 0.01, colour = "#1F968BFF") +
     theme(axis.text.x = element_text(angle = 45), legend.position = "none") +
     scale_fill_viridis_d() 
 
@@ -245,7 +245,7 @@ ggsave("Pk_maf_plot.png", dpi = 600, pk_maf_SNP)
 pk_maf_density <- pk_maf  %>%
     ggplot(aes(x = MAF)) +
     geom_density(alpha=.3) +
-    geom_vline(xintercept = 0.05, colour = "#1F968BFF") 
+    geom_vline(xintercept = 0.01, colour = "#1F968BFF") 
 
 ggsave("Pk_maf_density.png", dpi = 600, pk_maf_density)
 
@@ -303,7 +303,7 @@ sample_miss_density <- sample_mis %>%
     select(2:ncol(.)) %>%
     ggplot(aes(x = Geno_Miss)) +
     geom_density(alpha=.3) +
-    geom_vline(xintercept = 0.75, colour = "#1F968BFF") 
+    geom_vline(xintercept = 0.25, colour = "#1F968BFF") 
 
 ggsave("sample_miss_density_plot.png", width = 12, dpi = 600, sample_miss_density)
 
@@ -327,7 +327,7 @@ ggsave("var_miss_plot.png", width = 12, dpi = 600, var_miss_plot)
 var_miss_density <- var_miss %>% 
     ggplot(aes(x = Geno_Miss)) +
     geom_density(alpha=.3) +
-    geom_vline(xintercept = 0.75, colour = "#1F968BFF") 
+    geom_vline(xintercept = 0.25, colour = "#1F968BFF") 
 
 ggsave("variant_miss_density_plot.png", width = 12, dpi = 600, var_miss_density)
 
@@ -357,11 +357,18 @@ MAF (=Minor Allele Frequency) = P(geno=1, Aa)x0.5 + P(geno=2, aa)
 
 ```{bash,eval=F}
 plink --bfile Pk --recode --out Pk
-plink --file Pk --max-maf 0.05 --geno 0.25 --make-bed --out cleaned
+plink --file Pk --maf 0.01 --geno 0.25 --make-bed --out cleaned
 ```
+
+Result:
+102081 variants removed due to missing genotype data
+731000 variants removed due to minor allele threshold(s)
+842207 variants and 202 people pass filters and QC
 
 
 ## Use PLINK to create PCA and MDS data, and a distance matrix (identity-by-state)
+
+The first few lines is based on non-filtered data, wherease the lines below these are for the filtered data generated above.
 
 ```{bash,eval=F}
 plink --bfile Pk --cluster --mds-plot 10 --out Pk
