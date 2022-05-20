@@ -22,13 +22,15 @@ Location_data <- readxl::read_xlsx("/g/data/pq84/malaria/Parasite_and_human_gene
       rename(Sample = ENA_accession_no_ES) %>%
       add_column(Cluster = "Peninsular") 
   ) %>%
-  mutate(Location = str_replace(Location, " ", "_"))
+  mutate(Location = str_replace(Location, " ", "_")) 
 
 
 Plink_fam <- read_csv("Pk.csv", col_names=FALSE) %>%
   select(-ncol(.)) %>%
   mutate(Sample = str_remove(X2, "_DKD.*")) %>% 
   left_join(Location_data) %>% 
+  mutate(Location = ifelse(Sample == "ERR3374058", "Peninsular", .$Location),
+        Cluster = ifelse(Sample == "ERR3374058", "Peninsular", .$Cluster)) %>%
   select(-Sample) 
 
 write_csv(Plink_fam, "Pk.csv", col_names = FALSE)

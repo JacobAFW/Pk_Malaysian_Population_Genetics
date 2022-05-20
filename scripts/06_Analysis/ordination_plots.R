@@ -121,6 +121,15 @@ ggsave("NJT_tree_cluster_rooted.png", dpi = 600, height = 8, width = 16, NJT_tre
 NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
     theme(legend.position = "right", 
         legend.title = element_blank(), 
-        legend.key = element_blank()) 
+        legend.key = element_blank())
     
-ggsave("NJT_tree_cluster_unrooted.png", dpi = 600, height = 8, width = 16, NJT_tree_plot)
+ggsave("NJT_tree_cluster_unrooted.png", dpi = 600, height = 15, width = 15, limitsize = FALSE, NJT_tree_plot)
+
+# Labels
+# NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
+#   theme(legend.position = "right", 
+#   legend.title = element_blank(), 
+#   legend.key = element_blank()) +
+#   geom_tiplab(size = 2)
+    
+#ggsave("NJT_tree_cluster_unrooted.png", dpi = 600, height = 20, width = 20, limitsize = FALSE, NJT_tree_plot)

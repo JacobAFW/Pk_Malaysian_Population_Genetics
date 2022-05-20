@@ -357,7 +357,7 @@ MAF (=Minor Allele Frequency) = P(geno=1, Aa)x0.5 + P(geno=2, aa)
 
 ```{bash,eval=F}
 plink --bfile Pk --recode --out Pk
-plink --file Pk --maf 0.05 --geno 0.25 --make-bed --out cleaned
+plink --file Pk --maf 0.01 --geno 0.25 --make-bed --out cleaned
 ```
 
 Result:
@@ -414,10 +414,12 @@ eigenval <- scan("Pk.eigenval")
 ## Add metadata 
 pca <- pca %>%
     left_join(read_csv("Pk.csv", col_names = FALSE) %>% 
-        select(1,6) %>%
+        select(1, 6, 7) %>%
         rename(sampleid = X1) %>%
         rename(Location = X6) %>%
+        rename(Cluster = X7) %>%
         mutate(sampleid = str_remove(sampleid, "_DK.*")))
+
 
 ## Percentage variance explained by each PC
 pve_plot <- data.frame(PC = 1:20, pve = eigenval/sum(eigenval)*100) %>%
@@ -431,7 +433,7 @@ ggsave("Percentage_variance_explained.png", dpi=600, pve_plot)
 ## Plot PCA
 pve <- data.frame(PC = 1:20, pve = eigenval/sum(eigenval)*100)
 
-pca_plot <- ggplot(pca, aes(PC1, PC2, colour = Location)) + 
+pca_plot <- ggplot(pca, aes(PC1, PC2, colour = Cluster)) + 
     geom_point(size = 3) +
     scale_color_viridis_d() +
     coord_equal() + 
@@ -454,13 +456,14 @@ mds <- read_table("Pk.mds", col_names=T) %>%
 ## Add metadata 
 mds <- mds %>%
     left_join(read_csv("Pk.csv", col_names = FALSE) %>% 
-        select(1,6) %>%
+        select(1, 6, 7) %>%
         rename(sampleid = X1) %>%
         rename(Location = X6) %>%
+        rename(Cluster = X7) %>%
         mutate(sampleid = str_remove(sampleid, "_DK.*")))
 
 ## Plot MDS
-mds_plot <- ggplot(mds, aes(MDS1, MDS2, colour = Location)) + 
+mds_plot <- ggplot(mds, aes(MDS1, MDS2, colour = Cluster)) + 
     geom_point(size = 3) +
     scale_color_viridis_d() +
     coord_equal() + 
@@ -471,7 +474,7 @@ ggsave("MDS.png", dpi=600, mds_plot)
 
 # Neighbour-joining tree
 
-## Create distance matrix from PLINK data and built NJT
+## Create distance matrix from PLINK data and build NJT
 NJT_ID <- read_table("Pk.dist.id", col_names=F) %>%
     as.data.frame() %>%
     mutate_all(~str_remove(., "_DKD.*")) 
@@ -487,32 +490,113 @@ NJT_tree <- nj(NJT_matrix)
 ## Plot tree
 # options(ignore.negative.edge=TRUE)
 NJT_metadata <- read_csv("Pk.csv", col_names = FALSE) %>%
-    select(1, 6 ) %>%
+    select(1, 6, 7) %>%
     rename(Sample = X1) %>%
     rename(Location = X6) %>%
+    rename(Cluster = X7) %>%
     mutate(Sample = str_remove(Sample, "_DKD.*")) %>%
     mutate_if(is.character, as.factor) %>%
-    mutate(Malaysia = ifelse(Location == "Sabah" | Location == "Betong" | Location == "Kapit" | Location == "Sarikei", "Borneo", "Peninsular")) 
+    mutate(Region = ifelse(Location == "Sabah" | Location == "Betong" | Location == "Kapit" | Location == "Sarikei", "Borneo", "Peninsular")) 
 
 options(ignore.negative.edge=TRUE)
 
 NJT_tree_plot <- ggtree(NJT_tree, layout = "circular", size = 0.5, aes(colour = Location)) %<+% NJT_metadata +
-    geom_tippoint(aes(colour = Location, shape = Malaysia)) + 
+    geom_tippoint(aes(colour = Location, shape = Region)) + 
     theme(legend.position = "right", 
         legend.title = element_blank(), 
         legend.key = element_blank()) 
     
-ggsave("NJT_tree.png", dpi = 600, height = 8, width = 16, NJT_tree_plot)
+ggsave("NJT_tree_location.png", dpi = 600, height = 8, width = 16, NJT_tree_plot)
+
+NJT_tree_plot <- ggtree(NJT_tree, layout="circular", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
+    theme(legend.position = "right", 
+        legend.title = element_blank(), 
+        legend.key = element_blank()) 
+    
+ggsave("NJT_tree_cluster_rooted.png", dpi = 600, height = 8, width = 16, NJT_tree_plot)
+
+NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
+    theme(legend.position = "right", 
+        legend.title = element_blank(), 
+        legend.key = element_blank())
+    
+ggsave("NJT_tree_cluster_unrooted.png", dpi = 600, height = 15, width = 15, limitsize = FALSE, NJT_tree_plot)
+
+# Labels
+# NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
+ #   theme(legend.position = "right", 
+ #       legend.title = element_blank(), 
+ #       legend.key = element_blank()) +
+ #   geom_tiplab(size = 2)
+
+#ggsave("NJT_tree_cluster_unrooted.png", dpi = 600, height = 20, width = 20, limitsize = FALSE, NJT_tree_plot)
 ```
 
+
 ## Fst statistic
+
+First create a file that contains the clusters you want to used for the Fst. You can ammend the Pk.fam file (or metadata), but the file needs to be structured in PLINKs weird FID-IID-Cluster format.
+
 ```{bash,eval=F}
-plink --bfile Pk \
-  --within 
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/sample_clusters.R
+sed 's/,/ /g' sample_clusters.csv > sample_clusters.txt
+rm -f sample_clusters.csv
+
+plink --bfile cleaned \
+  --within sample_clusters.txt \
   --fst \
   --allow-no-sex \
   --out Pk
 ```
+
+R script used above for manually curating the clusters
+
+```{R,eval=F}
+library(tidyverse)
+
+read_csv("Pk.csv", col_names = F) %>% 
+    mutate(Fst_cluster = ifelse(grepl("PK_SB_DNA_021", X1) | grepl("PK_SB_DNA_088", X1) | grepl("PK_SB_DNA_049", X1) | grepl("PK_SB_DNA_094", X1) | grepl("PK_SB_DNA_046", X1) | # does the ID match any of these
+                    grepl("PK_SB_DNA_054", X1) | grepl("PK_SB_DNA_040", X1) | grepl("PK_SB_DNA_005", X1) | grepl("PK_SB_DNA_090", X1) | grepl("PK_SB_DNA_014", X1) |
+                    grepl("PK_SB_DNA_036", X1) | grepl("PK_SB_DNA_029", X1) | grepl("PK_SB_DNA_044", X1) | grepl("PK_SB_DNA_072", X1) | grepl("PK_SB_DNA_067", X1) |
+                    grepl("PK_SB_DNA_082", X1) | grepl("PK_SB_DNA_070", X1) | grepl("PK_SB_DNA_052", X1) | grepl("PK_SB_DNA_002", X1) | grepl("PK_SB_DNA_009", X1) |
+                    grepl("PK_SB_DNA_035", X1) | grepl("PK_SB_DNA_001", X1) | grepl("PK_SB_DNA_031", X1) | grepl("PK_SB_DNA_084", X1) | grepl("PK_SB_DNA_077", X1) |
+                    grepl("PK_SB_DNA_074", X1) | grepl("PK_SB_DNA_015", X1) | grepl("PK_SB_DNA_023", X1) | grepl("PK_SB_DNA_013", X1) | grepl("PK_SB_DNA_047", X1) |
+                    grepl("PK_SB_DNA_038", X1) | grepl("PK_SB_DNA_081", X1) | grepl("PK_SB_DNA_003", X1) | grepl("PK_SB_DNA_086", X1) | grepl("PK_SB_DNA_089", X1) |
+                    grepl("PK_SB_DNA_034", X1) | grepl("PK_SB_DNA_057", X1) | grepl("PK_SB_DNA_045", X1), "Mf", .$X7)) %>% # if not, just use values from X7 - clusters and Sabah
+    mutate(Fst_cluster = ifelse(Fst_cluster == "Sabah", "Mn", .$Fst_cluster)) %>% # if its the remaining Sabah samples, make them Mn, else keep them the same
+    select(1, 2, 8) %>%
+    write_csv("sample_clusters.csv", col_names = F)
+```
+
+
+### Plot Fst 
+
+```{R,eval=F}
+library(tidyverse)
+Fst_matrix <- read_table("Pk.fst", col_names=T) %>%
+    mutate(CHR = str_remove(SNP, "ordered_PKNH_")) %>%
+    mutate(CHR = str_remove(CHR, "_v2.*"))
+
+Fst_plot <- Fst_matrix %>% 
+    ggplot(aes(x = SNP, y = FST, colour = CHR)) +
+    geom_point() +
+    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+ggsave("Fst_dot_plot.png", dpi = 600, Fst_plot)
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
 
 ## Linkage-disequilibrium
 
