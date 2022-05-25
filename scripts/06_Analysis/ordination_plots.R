@@ -92,6 +92,8 @@ NJT_tree <- nj(NJT_matrix)
 
 ## Plot tree
 # options(ignore.negative.edge=TRUE)
+
+# Read in initial metadata
 NJT_metadata <- read_csv("Pk.csv", col_names = FALSE) %>%
     select(1, 6, 7) %>%
     rename(Sample = X1) %>%
@@ -101,8 +103,36 @@ NJT_metadata <- read_csv("Pk.csv", col_names = FALSE) %>%
     mutate_if(is.character, as.factor) %>%
     mutate(Region = ifelse(Location == "Sabah" | Location == "Betong" | Location == "Kapit" | Location == "Sarikei", "Borneo", "Peninsular")) 
 
+# Update metadata with more detailed location - districts - where we split up the Sabah samples (which represent OUR data), and also the clinic samples
+NJT_metadata <- NJT_metadata %>%
+    left_join(
+    readxl::read_xlsx("/g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/data/metadata/PK_Sabah_Sample_naming_indexes.xlsx") %>% # index data
+        mutate(subjectid = as.character(subjectid)) %>%
+        mutate(subjectid = ifelse(str_length(subjectid) == 1, paste0("00", subjectid), # if subjectid length = 1 paste 00
+                     ifelse(str_length(subjectid) == 2, paste0("0", subjectid), # if not, then if subjectid length = 2 paste 0
+                     .$subjectid))) %>% # if not, keep value the same
+    mutate(studycode = paste0(group, subjectid)) %>% # create studycode column that aligns with metadata
+    left_join( # left join the epi data to the index data so that we only get epi data for the samples that we have
+    read_tsv("/g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/data/metadata/Epi_data_ZB_clean.tsv")) %>%
+    select(sampleid, district) %>%
+    rename(Sample = sampleid) %>%
+    rename(District = district) %>%
+    mutate(District = str_replace(District, " ", "_"))
+    ) %>% 
+    mutate_if(is.factor, as.character) %>%
+    mutate(District = ifelse(is.na(District), .$Location, .$District)) %>% 
+    mutate(District = ifelse(Sample == "SRR2221468", "Hackeri", 
+        ifelse(Sample == "SRR2222335", "H(AW)", 
+        ifelse(Sample == "SRR2225467", "Malayan", 
+        ifelse(Sample == "SRR2225571", "MR4-H", 
+        ifelse(Sample == "SRR2225573", "Philippine",
+        ifelse(Sample == "SRR3135172", "YH1", .$District))))))) %>%
+    mutate(District = str_replace(District, "Kinaalu", "Kinabalu"))
+
 options(ignore.negative.edge=TRUE)
 
+
+# Location - Our Sabah samples vs OTHER
 NJT_tree_plot <- ggtree(NJT_tree, layout = "circular", size = 0.5, aes(colour = Location)) %<+% NJT_metadata +
     geom_tippoint(aes(colour = Location, shape = Region)) + 
     theme(legend.position = "right", 
@@ -111,6 +141,7 @@ NJT_tree_plot <- ggtree(NJT_tree, layout = "circular", size = 0.5, aes(colour = 
     
 ggsave("NJT_tree_location.png", dpi = 600, height = 8, width = 16, NJT_tree_plot)
 
+# Cluster - Our Sabah samples vs previously defined clusters
 NJT_tree_plot <- ggtree(NJT_tree, layout="circular", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
     theme(legend.position = "right", 
         legend.title = element_blank(), 
@@ -125,11 +156,28 @@ NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = Cl
     
 ggsave("NJT_tree_cluster_unrooted.png", dpi = 600, height = 15, width = 15, limitsize = FALSE, NJT_tree_plot)
 
-# Labels
-# NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
-#   theme(legend.position = "right", 
-#   legend.title = element_blank(), 
-#   legend.key = element_blank()) +
-#   geom_tiplab(size = 2)
+# District - MORE RESOLUTION - split our Sabah samples by district, and the clinic samples
+NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = District)) %<+% NJT_metadata +
+    geom_tippoint(aes(colour = District, shape = Cluster)) + 
+    theme(legend.position = "right", 
+        legend.title = element_blank(), 
+        legend.key = element_blank())
     
-#ggsave("NJT_tree_cluster_unrooted.png", dpi = 600, height = 20, width = 20, limitsize = FALSE, NJT_tree_plot)
+ggsave("NJT_tree_district_unrooted.png", dpi = 600, height = 15, width = 15, limitsize = FALSE, NJT_tree_plot)
+
+NJT_tree_plot <- ggtree(NJT_tree, layout="circular", size = 0.5, aes(colour = District)) %<+% NJT_metadata +
+    geom_tippoint(aes(colour = District, shape = Cluster)) + 
+    theme(legend.position = "right", 
+        legend.title = element_blank(), 
+        legend.key = element_blank()) 
+    
+ggsave("NJT_tree_district_rooted.png", dpi = 600, height = 8, width = 16, NJT_tree_plot)
+
+#Labels
+NJT_tree_plot <- ggtree(NJT_tree, layout="circular", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
+   theme(legend.position = "right", 
+   legend.title = element_blank(), 
+   legend.key = element_blank()) +
+   geom_tiplab(size = 2)
+    
+ggsave("NJT_tree_labelled_rooted.png", dpi = 600, height = 20, width = 20, limitsize = FALSE, NJT_tree_plot)

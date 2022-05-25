@@ -1,0 +1,239 @@
+# Testing a single sample
+
+## Required tools/libraries for Analyses
+
+```{bash}
+module load bcftools/1.12
+module load java/jdk-8.40 
+module load R/4.1.0 
+export R_LIBS_USER="/g/data/pq84/R"
+export PATH=$PATH:/g/data/pq84/bin/plink2/
+
+FASTA="/g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/data/ref_genomes/PKA1H1/fasta"
+VCF="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/filtered/"
+GATK="/g/data/pq84/bin/GenomeAnalysisTK-3.8-1-0/GenomeAnalysisTK.jar"
+
+cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses
+```
+
+## Filter for one sample and set ID
+
+```{bash,eval=F}
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T SelectVariants \
+    -R $FASTA/strain_A1_H.1.Icor.fasta \
+    -V $VCF/FILTERED_SNPs.vcf  \
+    --excludeFiltered \
+    --excludeIntervals PKNH_MIT_v2 --excludeIntervals new_API_strain_A1_H.1 \
+    --sample_name ERR2214837 \
+    -o ERR2214837_filtered_pass.vcf
+
+bcftools annotate --threads 10 --set-id +'%CHROM\_%POS\_%REF\_%FIRST_ALT' ERR2214837_filtered_pass.vcf > moimix/ERR2214837_filtered_pass.vcf
+```
+
+# moimix in R
+
+
+```{R,eval=F}
+# Converting VCF to GDS for estMOI
+library(SeqArray)
+seqVCF2GDS("moimix/ERR2214837_filtered_pass.vcf", "moimix/ERR2214837_filtered_pass.gds")
+isolates <- seqOpen("moimix/ERR2214837_filtered_pass.gds") # read into R
+seqSummary(isolates)
+sample.id <- seqGetData(isolates, "sample.id")
+seqCheck(isolates)
+str(seqGetData(isolates, "annotation/info/AC"))
+
+head(seqGetData(isolates, "sample.id"))
+
+# moimix analysis
+library(moimix)
+coords <- getCoordinates(isolates) # get genomic coordinates of all variants
+
+## estimating BAF matrix 
+isolate_baf <- bafMatrix(isolates)
+
+## Plot BAF matrix and export ###########################
+
+## Estimate MOI with binommix
+set.seed(2022)
+counts <- alleleCounts(isolates)
+m1 <- binommix(counts, samplie.id = "ERR2214837", k = 2)
+summary(m1)
+param.estimates <- getTheta(m1)
+param.estimates
+
+## Plot MOI and export ######################
+
+## Estiamting MOI with Fws
+fws_all <- getFws(isolates)
+
+## Plot MOI distribution and export ######################
+
+## identify isolates with high MOI
+library(tidyverse)
+fws_all %>%
+    filter() %>%
+    write_tsv("estMOI/high_MOI_samples.tsv")
+
+
+```
+
+
+# GATK only
+
+## Filter for one sample and set ID
+
+```{bash,eval=F}
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T SelectVariants \
+    -R $FASTA/strain_A1_H.1.Icor.fasta \
+    -V /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/gatk/GATK_genotyped.vcf.gz  \
+    --excludeFiltered \
+    --excludeIntervals PKNH_MIT_v2 --excludeIntervals new_API_strain_A1_H.1 \
+    --sample_name ERR2214837 \
+    -o ERR2214837_filtered_pass.vcf
+
+bcftools annotate --threads 10 --set-id +'%CHROM\_%POS\_%REF\_%FIRST_ALT' ERR2214837_filtered_pass.vcf > moimix/ERR2214837_filtered_pass.vcf
+```
+
+
+
+# Try rebuilding VCF to look like VCF 4.1
+
+cd moimix 
+cat ERR2214837_filtered_pass.vcf | grep '##fileformat=' > ERR2214837_file.txt
+echo '##fileDate=1653351754'  > ERR2214837_date.txt
+cat ERR2214837_filtered_pass.vcf | grep '##source=' > ERR2214837_source.txt
+cat ERR2214837_filtered_pass.vcf | grep 'reference=file:' > ERR2214837_reference.txt
+cat ERR2214837_filtered_pass.vcf | grep '##contig=' > ERR2214837_contig.txt
+echo '##phasing=partial' > ERR2214837_phasing.txt
+
+cat ERR2214837_filtered_pass.vcf | grep '##INFO=' > ERR2214837_info.txt
+cat ERR2214837_filtered_pass.vcf | grep '##FILTER=' > ERR2214837_filter.txt
+cat ERR2214837_filtered_pass.vcf | grep '##FORMAT=' > ERR2214837_format.txt
+cat ERR2214837_filtered_pass.vcf | sed -n '/#CHROM/,$p' > ERR2214837_variants.txt
+
+cat ERR2214837_file.txt ERR2214837_date.txt ERR2214837_source.txt ERR2214837_reference.txt ERR2214837_contig.txt ERR2214837_phasing.txt ERR2214837_info.txt ERR2214837_filter.txt ERR2214837_format.txt ERR2214837_variants.txt > ERR2214837_VCF_V1.vcf
+
+cdd 1
+
+```{R,eval=F}
+# Converting VCF to GDS for estMOI
+library(SeqArray)
+seqVCF2GDS("moimix/ERR2214837_VCF_V1.vcf", "moimix/ERR2214837_VCF_V1.gds")
+isolates <- seqOpen("moimix/ERR2214837_VCF_V1.gds") # read into R
+seqSummary(isolates)
+sample.id <- seqGetData(isolates, "sample.id")
+seqCheck(isolates)
+str(seqGetData(isolates, "annotation/info/AC"))
+
+head(seqGetData(isolates, "sample.id"))
+
+# moimix analysis
+library(moimix)
+coords <- getCoordinates(isolates) # get genomic coordinates of all variants
+
+## estimating BAF matrix 
+isolate_baf <- bafMatrix(isolates)
+
+## Plot BAF matrix and export ###########################
+
+## Estimate MOI with binommix
+set.seed(2022)
+counts <- alleleCounts(isolates)
+m1 <- binommix(counts, samplie.id = "ERR2214837", k = 2)
+summary(m1)
+param.estimates <- getTheta(m1)
+param.estimates
+
+## Plot MOI and export ######################
+
+## Estiamting MOI with Fws
+fws_all <- getFws(isolates)
+
+## Plot MOI distribution and export ######################
+
+## identify isolates with high MOI
+library(tidyverse)
+fws_all %>%
+    filter() %>%
+    write_tsv("estMOI/high_MOI_samples.tsv")
+
+
+```
+
+
+
+
+# Try selectting only those annotations given in the example data
+
+Annotation, INFO variable(s):
+    AF, A, Float, Allele Frequency, for each ALT allele, in the same order as listed
+    FS, 1, Float, Phred-scaled p-value using Fisher's exact test to detect strand bias
+    GC, 1, Float, GC content around the variant (see docs for window size details)
+    HaplotypeScore, 1, Float, Consistency of the site with at most two segregating haplotypes
+    MQ, 1, Float, RMS Mapping Quality
+    MQRankSum, 1, Float, Z-score From Wilcoxon rank sum test of Alt vs. Ref read mapping qualities
+    QD, 1, Float, Variant Confidence/Quality by Depth
+    ReadPosRankSum, 1, Float, Z-score from Wilcoxon rank sum test of Alt vs. Ref read position bias
+    SOR, 1, Float, Symmetric Odds Ratio of 2x2 contingency table to detect strand bias
+    VariantType, 1, String, Variant type description
+Annotation, FORMAT variable(s):
+    GT, 1, String, Genotype
+    AD, ., Integer, Allelic depths for the ref and alt alleles in the order listed
+    DP, 1, Integer, Approximate read depth (reads with MQ=255 or with bad mates are filtered)
+    GQ, 1, Integer, Genotype Quality
+
+
+## Remove all
+
+bcftools annotate --threads 10 --set-id +'%CHROM\_%POS\_%REF\_%FIRST_ALT' ERR2214837_VCF_V1.vcf \
+    --remove ^INFO/AF,INFO/FS,INFO/GC,INFO/HaplotypeScore,INFO/MQ,INFO/MQRankSum,INFO/QD,INFO/ReadPosRankSum,INFO/SOR,INFO/VariantType,^FORMAT/GT,FORMAT/AD,FORMAT/DP,FORMAT/GQ \
+    > ERR2214837_annot_removed.vcf
+
+
+```{R,eval=F}
+# Converting VCF to GDS for estMOI
+library(SeqArray)
+seqVCF2GDS("moimix/ERR2214837_annot_removed.vcf", "moimix/ERR2214837_annot_removed.gds")
+isolates <- seqOpen("moimix/ERR2214837_annot_removed.gds") # read into R
+seqSummary(isolates)
+sample.id <- seqGetData(isolates, "sample.id")
+seqCheck(isolates)
+str(seqGetData(isolates, "annotation/info/AF"))
+str(seqGetData(example_iso, "annotation/info/AF"))
+
+seqGDS2VCF(example_iso, "moimix/example_iso.vcf", info.var=NULL, fmt.var=NULL, chr_prefix="", use_Rsamtools=TRUE, verbose=TRUE)
+
+head(seqGetData(isolates, "sample.id"))
+
+# moimix analysis
+library(moimix)
+coords <- getCoordinates(isolates) # get genomic coordinates of all variants
+
+## Estimate MOI with binommix
+set.seed(2022)
+counts <- alleleCounts(isolates)
+fws_all <- getFws(isolates)
+
+## Plot MOI distribution and export ######################
+
+## identify isolates with high MOI
+library(tidyverse)
+fws_all %>%
+    filter() %>%
+    write_tsv("estMOI/high_MOI_samples.tsv")
+
+
+```
+
+
+
+# CLEAN UP
+rm -f ERR2214837_filtered_pass.vcf
+rm -f moimix/ERR2214837_filtered_pass.vcf
+
+
+
+
