@@ -31,24 +31,25 @@ pve_plot <- data.frame(PC = 1:20, pve = eigenval/sum(eigenval)*100) %>%
     ylab("Percentage variance explained") + 
     theme_light()
 
-ggsave("Pk_clusters/Percentage_variance_explained.png", dpi=600, pve_plot)
+ggsave("Pk_Sabah_Kapit_Betong/Percentage_variance_explained.png", dpi=600, pve_plot)
 
 
-## PCA - clusters
+## PCA - Mf vs Mn
 pve <- data.frame(PC = 1:20, pve = eigenval/sum(eigenval)*100)
 
-pca_plot <- ggplot(pca, aes(PC1, PC2, colour = Cluster)) + 
+pca_plot <- ggplot(pca, aes(PC1, PC2, colour = Location)) + 
     geom_point(size = 3) +
-    scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF", "#73D055FF")) +
+    scale_color_manual(values = c("#440154FF", "#39568CFF", "#73D055FF")) +
     coord_equal() + 
     theme_light() + 
     xlab(paste0("PC1 (", signif(pve$pve[1], 3), "%)")) + 
-    ylab(paste0("PC2 (", signif(pve$pve[2], 3), "%)"))
+    ylab(paste0("PC2 (", signif(pve$pve[2], 3), "%)")) +
+    xlim(-0.2, 0.2)
 
-ggsave("Pk_clusters/PCA.png", dpi = 600, pca_plot)
+ggsave("Pk_Sabah_Kapit_Betong/PCA.png", dpi = 600, pca_plot)
 
 
-# MDS - clusters
+# MDS - Mf vs Mn
 
 ## Read in data
 mds <- read_table("Pk.mds", col_names=T) %>%
@@ -67,13 +68,13 @@ mds <- mds %>%
         mutate(sampleid = str_remove(sampleid, "_DK.*")))
 
 ## Plot MDS
-mds_plot <- ggplot(mds, aes(MDS1, MDS2, colour = Cluster)) + 
+mds_plot <- ggplot(mds, aes(MDS1, MDS2, colour = Location)) + 
     geom_point(size = 3) +
-    scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF", "#73D055FF")) +
+    scale_color_manual(values = c("#440154FF", "#39568CFF", "#73D055FF")) +
     coord_equal() + 
     theme_light()
 
-ggsave("Pk_clusters/MDS.png", dpi=600, mds_plot)
+ggsave("Pk_Sabah_Kapit_Betong/MDS.png", dpi=600, mds_plot)
 
 # Neighbour-joining tree
 
@@ -131,29 +132,30 @@ NJT_metadata <- NJT_metadata %>%
 
 options(ignore.negative.edge=TRUE)
 
-# Cluster - Sabah samples vs previously defined clusters
-NJT_tree_plot <- ggtree(NJT_tree, layout="circular", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
-    theme(legend.position = "right", 
-        legend.title = element_blank(), 
-        legend.key = element_blank()) +
-    scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF", "#73D055FF"))
-    
-ggsave("Pk_clusters/NJT_tree_cluster_rooted.png", dpi = 600, height = 8, width = 16, NJT_tree_plot)
 
-NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
+# Cluster - Sabah vs Kapit vs Betong
+NJT_tree_plot <- ggtree(NJT_tree, layout="circular", size = 0.5, aes(colour = Location)) %<+% NJT_metadata +
     theme(legend.position = "right", 
         legend.title = element_blank(), 
         legend.key = element_blank()) +
-    scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF", "#73D055FF"))
+    scale_color_manual(values = c("#440154FF", "#39568CFF", "#73D055FF"))
     
-ggsave("Pk_clusters/NJT_tree_cluster_unrooted.png", dpi = 600, height = 15, width = 15, limitsize = FALSE, NJT_tree_plot)
+ggsave("Pk_Sabah_Kapit_Betong/NJT_tree_Location_rooted.png", dpi = 600, height = 8, width = 16, NJT_tree_plot)
+
+NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = Location)) %<+% NJT_metadata +
+    theme(legend.position = "right", 
+        legend.title = element_blank(), 
+        legend.key = element_blank()) +
+    scale_color_manual(values = c("#440154FF", "#39568CFF", "#73D055FF"))
+    
+ggsave("Pk_Sabah_Kapit_Betong/NJT_tree_Location_unrooted.png", dpi = 600, height = 15, width = 15, limitsize = FALSE, NJT_tree_plot)
 
 #Labels
-NJT_tree_plot <- ggtree(NJT_tree, layout="circular", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
-    theme(legend.position = "right", 
-    legend.title = element_blank(), 
-    legend.key = element_blank()) +
-    geom_tiplab(size = 2) +
-    scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF", "#73D055FF"))
+NJT_tree_plot <- ggtree(NJT_tree, layout="circular", size = 0.5, aes(colour = Location)) %<+% NJT_metadata +
+   theme(legend.position = "right", 
+   legend.title = element_blank(), 
+   legend.key = element_blank()) +
+   geom_tiplab(size = 2) +
+    scale_color_manual(values = c("#440154FF", "#39568CFF", "#73D055FF"))
     
-ggsave("Pk_clusters/NJT_tree_labelled_rooted.png", dpi = 600, height = 20, width = 20, limitsize = FALSE, NJT_tree_plot)
+ggsave("Pk_Sabah_Kapit_Betong/NJT_tree_labelled_rooted.png", dpi = 600, height = 20, width = 20, limitsize = FALSE, NJT_tree_plot)

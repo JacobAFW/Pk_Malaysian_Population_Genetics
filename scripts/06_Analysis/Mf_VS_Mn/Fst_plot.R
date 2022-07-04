@@ -19,19 +19,8 @@ Fst_plot_window <- Fst_matrix %>%
     facet_wrap(~CHR) +
     theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), legend.position = "none") +
     ylab("Fst") +
-    xlab("Windows (10000)") +
-    scale_color_discrete("Chr") +
-    geom_hline(yintercept = 0.4, colour = "#1F968BFF")
+    xlab("Windows (10000)")  +
+    scale_color_viridis_d("Chr") +
+    geom_hline(yintercept = 0.5, colour = "#1F968BFF")
 
-ggsave("Fst_sliding_window_plot.png", dpi = 600, width = 14, Fst_plot_window)
-
-
-# Per SNP
-Fst_plot <- Fst_matrix %>% 
-    filter(CHR == "14") %>%
-    ggplot(aes(x = POS, y = FST, colour = CHR)) +
-    geom_point()  +
-    geom_hline(yintercept = 0.4, colour = "#1F968BFF")
-    #theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) 
-
-ggsave("Fst_SNP_plot.png", dpi = 600, width = 14, Fst_plot)
+ggsave("Pk_Mn_vs_Mf/Fst_sliding_window_plot.png", dpi = 600, width = 14, Fst_plot_window)

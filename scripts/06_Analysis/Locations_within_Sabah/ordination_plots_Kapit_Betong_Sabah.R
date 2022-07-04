@@ -21,7 +21,31 @@ pca <- pca %>%
         rename(sampleid = X1) %>%
         rename(Location = X6) %>%
         rename(Cluster = X7) %>%
-        mutate(sampleid = str_remove(sampleid, "_DK.*")))
+        mutate(sampleid = str_remove(sampleid, "_DK.*"))) %>%
+    rename(Sample = sampleid) %>%
+    mutate(Region = ifelse(Location == "Sabah" | Location == "Betong" | Location == "Kapit" | Location == "Sarikei", "Borneo", "Peninsular")) %>%
+        left_join(
+            readxl::read_xlsx("/g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/data/metadata/PK_Sabah_Sample_naming_indexes.xlsx") %>% # index data
+                mutate(subjectid = as.character(subjectid)) %>%
+                mutate(subjectid = ifelse(str_length(subjectid) == 1, paste0("00", subjectid), # if subjectid length = 1 paste 00
+                     ifelse(str_length(subjectid) == 2, paste0("0", subjectid), # if not, then if subjectid length = 2 paste 0
+                     .$subjectid))) %>% # if not, keep value the same
+                mutate(studycode = paste0(group, subjectid)) %>% # create studycode column that aligns with metadata
+            left_join( # left join the epi data to the index data so that we only get epi data for the samples that we have
+                read_tsv("/g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/data/metadata/Epi_data_ZB_clean.tsv")) %>%
+                    select(sampleid, district) %>%
+                    rename(Sample = sampleid) %>%
+                    rename(District = district) %>%
+                    mutate(District = str_replace(District, " ", "_"))) %>% 
+        mutate_if(is.factor, as.character) %>%
+        mutate(District = ifelse(is.na(District), .$Location, .$District)) %>% 
+        mutate(District = ifelse(Sample == "SRR2221468", "Hackeri", 
+            ifelse(Sample == "SRR2222335", "H(AW)", 
+            ifelse(Sample == "SRR2225467", "Malayan", 
+            ifelse(Sample == "SRR2225571", "MR4-H", 
+            ifelse(Sample == "SRR2225573", "Philippine",
+            ifelse(Sample == "SRR3135172", "YH1", .$District))))))) %>%
+        mutate(District = str_replace(District, "Kinaalu", "Kinabalu"))
 
 
 ## Percentage variance explained by each PC
@@ -31,7 +55,7 @@ pve_plot <- data.frame(PC = 1:20, pve = eigenval/sum(eigenval)*100) %>%
     ylab("Percentage variance explained") + 
     theme_light()
 
-ggsave("Pk_clusters/Percentage_variance_explained.png", dpi=600, pve_plot)
+ggsave("Percentage_variance_explained.png", dpi=600, pve_plot)
 
 
 ## PCA - clusters
@@ -39,13 +63,13 @@ pve <- data.frame(PC = 1:20, pve = eigenval/sum(eigenval)*100)
 
 pca_plot <- ggplot(pca, aes(PC1, PC2, colour = Cluster)) + 
     geom_point(size = 3) +
-    scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF", "#73D055FF")) +
+    scale_color_viridis_d() +
     coord_equal() + 
     theme_light() + 
     xlab(paste0("PC1 (", signif(pve$pve[1], 3), "%)")) + 
     ylab(paste0("PC2 (", signif(pve$pve[2], 3), "%)"))
 
-ggsave("Pk_clusters/PCA.png", dpi = 600, pca_plot)
+ggsave("Pk_clusters/PCA_clusters.png", dpi = 600, pca_plot)
 
 
 # MDS - clusters
@@ -69,7 +93,7 @@ mds <- mds %>%
 ## Plot MDS
 mds_plot <- ggplot(mds, aes(MDS1, MDS2, colour = Cluster)) + 
     geom_point(size = 3) +
-    scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF", "#73D055FF")) +
+    scale_color_viridis_d() +
     coord_equal() + 
     theme_light()
 
@@ -131,29 +155,53 @@ NJT_metadata <- NJT_metadata %>%
 
 options(ignore.negative.edge=TRUE)
 
-# Cluster - Sabah samples vs previously defined clusters
+
+# Location - Our Sabah samples vs OTHER
+NJT_tree_plot <- ggtree(NJT_tree, layout = "circular", size = 0.5, aes(colour = Location)) %<+% NJT_metadata +
+    geom_tippoint(aes(colour = Location, shape = Region)) + 
+    theme(legend.position = "right", 
+        legend.title = element_blank(), 
+        legend.key = element_blank()) 
+    
+ggsave("NJT_tree_location.png", dpi = 600, height = 8, width = 16, NJT_tree_plot)
+
+# Cluster - Our Sabah samples vs previously defined clusters
 NJT_tree_plot <- ggtree(NJT_tree, layout="circular", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
     theme(legend.position = "right", 
         legend.title = element_blank(), 
-        legend.key = element_blank()) +
-    scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF", "#73D055FF"))
+        legend.key = element_blank()) 
     
-ggsave("Pk_clusters/NJT_tree_cluster_rooted.png", dpi = 600, height = 8, width = 16, NJT_tree_plot)
+ggsave("NJT_tree_cluster_rooted.png", dpi = 600, height = 8, width = 16, NJT_tree_plot)
 
 NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
     theme(legend.position = "right", 
         legend.title = element_blank(), 
-        legend.key = element_blank()) +
-    scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF", "#73D055FF"))
+        legend.key = element_blank())
     
-ggsave("Pk_clusters/NJT_tree_cluster_unrooted.png", dpi = 600, height = 15, width = 15, limitsize = FALSE, NJT_tree_plot)
+ggsave("NJT_tree_cluster_unrooted.png", dpi = 600, height = 15, width = 15, limitsize = FALSE, NJT_tree_plot)
+
+# District - MORE RESOLUTION - split our Sabah samples by district, and the clinic samples
+NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = District)) %<+% NJT_metadata +
+    geom_tippoint(aes(colour = District, shape = Cluster)) + 
+    theme(legend.position = "right", 
+        legend.title = element_blank(), 
+        legend.key = element_blank())
+    
+ggsave("NJT_tree_district_unrooted.png", dpi = 600, height = 15, width = 15, limitsize = FALSE, NJT_tree_plot)
+
+NJT_tree_plot <- ggtree(NJT_tree, layout="circular", size = 0.5, aes(colour = District)) %<+% NJT_metadata +
+    geom_tippoint(aes(colour = District, shape = Cluster)) + 
+    theme(legend.position = "right", 
+        legend.title = element_blank(), 
+        legend.key = element_blank()) 
+    
+ggsave("NJT_tree_district_rooted.png", dpi = 600, height = 8, width = 16, NJT_tree_plot)
 
 #Labels
 NJT_tree_plot <- ggtree(NJT_tree, layout="circular", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
-    theme(legend.position = "right", 
-    legend.title = element_blank(), 
-    legend.key = element_blank()) +
-    geom_tiplab(size = 2) +
-    scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF", "#73D055FF"))
+   theme(legend.position = "right", 
+   legend.title = element_blank(), 
+   legend.key = element_blank()) +
+   geom_tiplab(size = 2)
     
-ggsave("Pk_clusters/NJT_tree_labelled_rooted.png", dpi = 600, height = 20, width = 20, limitsize = FALSE, NJT_tree_plot)
+ggsave("NJT_tree_labelled_rooted.png", dpi = 600, height = 20, width = 20, limitsize = FALSE, NJT_tree_plot)

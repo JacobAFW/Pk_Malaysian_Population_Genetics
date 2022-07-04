@@ -228,12 +228,66 @@ fws_all %>%
 
 ```
 
+# Try selectting only those annotations exported from the example data, and adding in those needed
 
+java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+    -T SelectVariants \
+    -R $FASTA/strain_A1_H.1.Icor.fasta \
+    -V $VCF/FILTERED_SNPs.vcf  \
+    --excludeFiltered \
+    --excludeIntervals PKNH_MIT_v2 --excludeIntervals new_API_strain_A1_H.1 \
+    --sample_name ERR2214837 \
+    -o ERR2214837_filtered_pass.vcf
+
+
+
+echo "##INFO=<ID=AA,Number=1,Type=String,Description=\"Ancestral Allele\">" > headers.txt
+
+bcftools annotate -c +INFO/AA -h headers.txt ERR2214837_filtered_pass.vcf > moimix/ERR2214837_annot_removed.vcf
+
+bcftools annotate --threads 10 --set-id +'%CHROM\_%POS\_%REF\_%FIRST_ALT' ERR2214837_filtered_pass.vcf \
+    --remove ^INFO/AA,INFO/AC,INFO/AN,INFO/DP,INFO/GP,INFO/BN^FORMAT/GT,FORMAT/DP \
+    > moimix/ERR2214837_annot_removed.vcf
+
+
+
+
+### Option 2
+
+bcftools annotate --set-id +'%CHROM\_%POS\_%REF\_%FIRST_ALT' ERR2214837_filtered_pass.vcf > moimix/ERR2214837_filtered_pass.vcf
+
+cd moimix
+
+sed '/##INFO=<ID=AC/q' ERR2214837_filtered_pass.vcf > one.vcf
+echo "##INFO=<ID=AA,Number=1,Type=String,Description=\"Ancestral Allele\">" > two.vcf
+sed -n '/##INFO=<ID=AF/,$p' ERR2214837_filtered_pass.vcf | sed -n '/#CHROM/q' > three.vcf
+sed '/#CHROM/q' ERR2214837_filtered_pass.vcf  | sed -n '/##INFO=<ID=AF/,$p' > three.vcf
+cat ERR2214837_filtered_pass.vcf | sed -n '/#CHROM/,$p' | tail -n +2 | awk '{ s = ""; for (i = 9; i <= NF; i++) s = s $i "\t"; print $1 "\t" $2 "\t" $3 "\t" $4 "\t" $5 "\t" $6 "\t" $7 "\t" "AA=" $4 ";" $8 "\t" s }' > four.vcf
+
+cat one.vcf two.vcf three.vcf four.vcf > ERR2214837_updated.vcf
+
+rm -f one.vcf two.vcf three.vcf four.vcf 
+
+bcftools annotate --remove ^INFO/AA,INFO/AC,INFO/AN,INFO/DP,INFO/GP,INFO/BN^FORMAT/GT,FORMAT/DP  ERR2214837_updated.vcf > ERR2214837_annot_removed.vcf
+
+```{R,eval=F}
+library(SeqArray)
+library(moimix)
+seqVCF2GDS("moimix/ERR2214837_annot_removed.vcf", "moimix/ERR2214837_annot_removed.gds")
+isolates <- seqOpen("moimix/ERR2214837_annot_removed.gds") # read into R
+seqSummary(isolates)
+sample.id <- seqGetData(isolates, "sample.id")
+seqCheck(isolates)
+coords <- getCoordinates(isolates) # get genomic coordinates of all variants
+set.seed(2022)
+counts <- alleleCounts(isolates)
+fws_all <- getFws(isolates)
+```
 
 # CLEAN UP
 rm -f ERR2214837_filtered_pass.vcf
 rm -f moimix/ERR2214837_filtered_pass.vcf
 
 
-
+ 
 

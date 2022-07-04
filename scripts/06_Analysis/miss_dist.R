@@ -26,15 +26,6 @@ var_miss <- read_table("Pk.lmiss", col_names=T) %>%
     rename(Geno_Miss = F_MISS,
             Chr = CHR)
 
-## Plot dist by variant and coloured by chromosome
-var_miss_plot <- var_miss %>% 
-    ggplot(aes(x = SNP, y = Geno_Miss, fill =  Chr)) +
-    geom_col() +
-    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
-    scale_fill_viridis_d(option = "D") 
-
-ggsave("var_miss_plot.png", width = 12, dpi = 600, var_miss_plot)
-
 # Density of miss by variant
 var_miss_density <- var_miss %>% 
     ggplot(aes(x = Geno_Miss)) +

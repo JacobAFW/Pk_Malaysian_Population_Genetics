@@ -102,8 +102,6 @@ library(tidyverse)
 fws_all %>%
     filter() %>%
     write_tsv("estMOI/high_MOI_samples.tsv")
-
-
 ```
 
 ############################################################################################################# WORK IN PROGRESS
@@ -230,17 +228,6 @@ library(tidyverse)
 pk_maf <- read_table("Pk.frq", col_names=T) %>%
     mutate(CHR = str_remove(SNP, ":.*"))
 
-# Plot MAF by SNP
-pk_maf_SNP <- pk_maf  %>%
-    ggplot(aes(x = SNP, y = MAF, fill = CHR)) +
-    geom_col() +
-    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
-    geom_hline(yintercept = 0.01, colour = "#1F968BFF") +
-    theme(axis.text.x = element_text(angle = 45), legend.position = "none") +
-    scale_fill_viridis_d() 
-
-ggsave("Pk_maf_plot.png", dpi = 600, pk_maf_SNP)
-
 # Density of MAF by SNP
 pk_maf_density <- pk_maf  %>%
     ggplot(aes(x = MAF)) +
@@ -303,7 +290,7 @@ sample_miss_density <- sample_mis %>%
     select(2:ncol(.)) %>%
     ggplot(aes(x = Geno_Miss)) +
     geom_density(alpha=.3) +
-    geom_vline(xintercept = 0.25, colour = "#1F968BFF") 
+    geom_vline(xintercept = 0.1, colour = "#1F968BFF") 
 
 ggsave("sample_miss_density_plot.png", width = 12, dpi = 600, sample_miss_density)
 
@@ -313,15 +300,6 @@ var_miss <- read_table("Pk.lmiss", col_names=T) %>%
     mutate(CHR = str_remove(SNP, ":.*")) %>%
     rename(Geno_Miss = F_MISS,
             Chr = CHR)
-
-## Plot dist by variant and coloured by chromosome
-var_miss_plot <- var_miss %>% 
-    ggplot(aes(x = SNP, y = Geno_Miss, fill =  Chr)) +
-    geom_col() +
-    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
-    scale_fill_viridis_d(option = "D") 
-
-ggsave("var_miss_plot.png", width = 12, dpi = 600, var_miss_plot)
 
 # Density of miss by variant
 var_miss_density <- var_miss %>% 
@@ -352,38 +330,38 @@ write_csv(miss_summary, "pk_miss_summary.csv")
 **FILTERED:**
  - exclude variants with > 25% missing alleles
  - exclude variants with minor allele frequencies > 5%
+ - exclude samples with > 25% missing alleles
+
+Values selected based on the distrbutions plotted previously.
 
 MAF (=Minor Allele Frequency) = P(geno=1, Aa)x0.5 + P(geno=2, aa)
 
 ```{bash,eval=F}
 plink --bfile Pk --recode --out Pk
-plink --file Pk --maf 0.05 --geno 0.25 --make-bed --out cleaned
+plink --file Pk --maf 0.05 --geno 0.25 --mind 0.25 --make-bed --out cleaned
 ```
 
-Result:
 
---maf 0.01 --geno 0.25
+#########################################################################################################
 
-102081 variants removed due to missing genotype data
-731000 variants removed due to minor allele threshold(s)
-842207 variants and 202 people pass filters and QC
 
---maf 0.05 --geno 0.25
 
-102081 variants removed due to missing genotype data (--geno).
-1244443 variants removed due to minor allele threshold(s)
-(--maf/--max-maf/--mac/--max-mac).
-328764 variants and 202 people pass filters and QC.
-
+# How do the Sabah samples fit into the previously defined clusters?
 
 ## Use PLINK to create PCA and MDS data, and a distance matrix (identity-by-state)
 
-The first few lines is based on non-filtered data, wherease the lines below these are for the filtered data generated above.
+The different functions:
+    --cluster is MDS
+    --distance is identity by state
+    --genome is identity by decent
+        unbounded - "The underlying P(IBD=0/1/2) estimator sometimes yields numbers outside the range [0,1]; by default, these are clipped. The 'unbounded' modifier turns off this clipping."
+        nudge - "Then, if PI_HAT2 < P(IBD=2), 'nudge' adjusts the final estimates to P(IBD=0) := (1-p2), P(IBD=1) := 2p(1-p), and P(IBD=2) := p2, where p is the current PI_HAT."
 
 ```{bash,eval=F}
 plink --bfile cleaned --cluster --mds-plot 10 --out Pk
 plink --bfile cleaned --pca --out Pk
 plink --bfile cleaned --distance square --out Pk
+plink --bfile cleaned --genome gz unbounded nudge --out Pk
 Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/ordination_plots.R
 ```
 
@@ -423,23 +401,24 @@ pve_plot <- data.frame(PC = 1:20, pve = eigenval/sum(eigenval)*100) %>%
     ylab("Percentage variance explained") + 
     theme_light()
 
-ggsave("Percentage_variance_explained.png", dpi=600, pve_plot)
+ggsave("Pk_clusters/Percentage_variance_explained.png", dpi=600, pve_plot)
 
-## Plot PCA
+
+## PCA - clusters
 pve <- data.frame(PC = 1:20, pve = eigenval/sum(eigenval)*100)
 
 pca_plot <- ggplot(pca, aes(PC1, PC2, colour = Cluster)) + 
     geom_point(size = 3) +
-    scale_color_viridis_d() +
+    scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF", "#73D055FF")) +
     coord_equal() + 
     theme_light() + 
     xlab(paste0("PC1 (", signif(pve$pve[1], 3), "%)")) + 
     ylab(paste0("PC2 (", signif(pve$pve[2], 3), "%)"))
 
-ggsave("PCA.png", dpi = 600, pca_plot)
+ggsave("Pk_clusters/PCA.png", dpi = 600, pca_plot)
 
 
-# MDS
+# MDS - clusters
 
 ## Read in data
 mds <- read_table("Pk.mds", col_names=T) %>%
@@ -460,12 +439,11 @@ mds <- mds %>%
 ## Plot MDS
 mds_plot <- ggplot(mds, aes(MDS1, MDS2, colour = Cluster)) + 
     geom_point(size = 3) +
-    scale_color_viridis_d() +
+    scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF", "#73D055FF")) +
     coord_equal() + 
     theme_light()
 
-ggsave("MDS.png", dpi=600, mds_plot)
-
+ggsave("Pk_clusters/MDS.png", dpi=600, mds_plot)
 
 # Neighbour-joining tree
 
@@ -523,77 +501,662 @@ NJT_metadata <- NJT_metadata %>%
 
 options(ignore.negative.edge=TRUE)
 
-# Location - Our Sabah samples vs OTHER
-NJT_tree_plot <- ggtree(NJT_tree, layout = "circular", size = 0.5, aes(colour = Location)) %<+% NJT_metadata +
-    geom_tippoint(aes(colour = Location, shape = Region)) + 
-    theme(legend.position = "right", 
-        legend.title = element_blank(), 
-        legend.key = element_blank()) 
-    
-ggsave("NJT_tree_location.png", dpi = 600, height = 8, width = 16, NJT_tree_plot)
-
-# Cluster - Our Sabah samples vs previously defined clusters
+# Cluster - Sabah samples vs previously defined clusters
 NJT_tree_plot <- ggtree(NJT_tree, layout="circular", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
     theme(legend.position = "right", 
         legend.title = element_blank(), 
-        legend.key = element_blank()) 
+        legend.key = element_blank()) +
+    scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF", "#73D055FF"))
     
-ggsave("NJT_tree_cluster_rooted.png", dpi = 600, height = 8, width = 16, NJT_tree_plot)
+ggsave("Pk_clusters/NJT_tree_cluster_rooted.png", dpi = 600, height = 8, width = 16, NJT_tree_plot)
 
 NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
     theme(legend.position = "right", 
         legend.title = element_blank(), 
-        legend.key = element_blank())
+        legend.key = element_blank()) +
+    scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF", "#73D055FF"))
     
-ggsave("NJT_tree_cluster_unrooted.png", dpi = 600, height = 15, width = 15, limitsize = FALSE, NJT_tree_plot)
-
-# District - MORE RESOLUTION - split our Sabah samples by district, and the clinic samples
-NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = District)) %<+% NJT_metadata +
-    geom_tippoint(aes(colour = District, shape = Cluster)) + 
-    theme(legend.position = "right", 
-        legend.title = element_blank(), 
-        legend.key = element_blank())
-    
-ggsave("NJT_tree_district_unrooted.png", dpi = 600, height = 15, width = 15, limitsize = FALSE, NJT_tree_plot)
-
-NJT_tree_plot <- ggtree(NJT_tree, layout="circular", size = 0.5, aes(colour = District)) %<+% NJT_metadata +
-    geom_tippoint(aes(colour = District, shape = Cluster)) + 
-    theme(legend.position = "right", 
-        legend.title = element_blank(), 
-        legend.key = element_blank()) 
-    
-ggsave("NJT_tree_district_rooted.png", dpi = 600, height = 8, width = 16, NJT_tree_plot)
+ggsave("Pk_clusters/NJT_tree_cluster_unrooted.png", dpi = 600, height = 15, width = 15, limitsize = FALSE, NJT_tree_plot)
 
 #Labels
 NJT_tree_plot <- ggtree(NJT_tree, layout="circular", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
-   theme(legend.position = "right", 
-   legend.title = element_blank(), 
-   legend.key = element_blank()) +
-   geom_tiplab(size = 2)
+    theme(legend.position = "right", 
+    legend.title = element_blank(), 
+    legend.key = element_blank()) +
+    geom_tiplab(size = 2) +
+    scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF", "#73D055FF"))
     
-ggsave("NJT_tree_labelled_rooted.png", dpi = 600, height = 20, width = 20, limitsize = FALSE, NJT_tree_plot)
+ggsave("Pk_clusters/NJT_tree_labelled_rooted.png", dpi = 600, height = 20, width = 20, limitsize = FALSE, NJT_tree_plot)
 ```
 
 
-## Fst statistic
 
-First create a file that contains the clusters you want to used for the Fst. You can ammend the Pk.fam file (or metadata), but the file needs to be structured in PLINKs weird FID-IID-Cluster format.
+#########################################################################################################
 
-I aslo tighten up the filter to get rid of any variant that has > 10% genotypic missingness
+
+
+# How do the Sabah samples fit into the Mn and Mf clusters (within Malaysian Borneo)?
+
+## Here we subset calculate the distances based on a subset of the data by excluding Peninsular samples, so that we're only investigating Mn and Mf clusters.
 
 ```{bash,eval=F}
-plink --file Pk --maf 0.05 --geno 0.10 --make-bed --out cleaned
+cat Pk.fam | grep 'Peninsular' > exclude_samples.txt
 
-Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/sample_clusters.R
+plink --bfile cleaned --remove exclude_samples.txt --cluster --mds-plot 10 --out Pk
+plink --bfile cleaned --remove exclude_samples.txt --pca --out Pk
+plink --bfile cleaned --remove exclude_samples.txt --distance square --out Pk
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/Mf_VS_Mn/ordination_plots_Mf_VS_Mn.R
+```
+
+## Fst statistic - Mn vs Mf
+
+First create a file that contains the clusters you want used for the Fst. You can ammend the Pk.fam file (or metadata), but the file needs to be structured in PLINKs weird FID-IID-Cluster format.
+
+Steps:
+    - Apply filter (as done previously)
+    - Attach metadata to fam file (as done previously)
+    - Define clusters using metadata
+    - Calculate and plot Fst for a-priori clusters (sample_clusters.txt)
+
+```{bash,eval=F}
+plink --file Pk --maf 0.05 --geno 0.25 --mind 0.25 --make-bed --out cleaned
+sed 's/ /,/g' cleaned.fam > Pk.csv
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/pheno_to_plink_fam.R
+sed 's/,/ /g' Pk.csv > Pk.fam
+
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/Mf_VS_Mn/sample_clusters.R
 sed 's/,/ /g' sample_clusters.csv > sample_clusters.txt
 rm -f sample_clusters.csv
 
 plink --bfile cleaned \
   --within sample_clusters.txt \
+  --remove exclude_samples.txt \
   --fst \
   --allow-no-sex \
   --out Pk
+
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/Mf_VS_Mn/Fst_plot.R
 ```
+
+### sample_clusters.R script for defining clusters to compare for Fst
+
+```{R,eval=F}
+library(tidyverse)
+
+read_csv("Pk.csv", col_names = F) %>% 
+    mutate(Fst_cluster = ifelse(grepl("PK_SB_DNA_011", X1) | # does the ID match any of these
+                                grepl("PK_SB_DNA_091", X1) | 
+                                grepl("PK_SB_DNA_043", X1) |
+                                grepl("PK_SB_DNA_016", X1) |  
+                                grepl("PK_SB_DNA_092", X1) | 
+                                grepl("PK_SB_DNA_030", X1) | 
+                                grepl("PK_SB_DNA_093", X1) | 
+                                grepl("PK_SB_DNA_042", X1) | 
+                                grepl("PK_SB_DNA_063", X1) |
+                                grepl("PK_SB_DNA_028", X1) , "Mn", .$X7)) %>% # if not, just use values from X7 - clusters and Sabah
+    mutate(Fst_cluster = ifelse(Fst_cluster == "Sabah", "Mf", .$Fst_cluster)) %>% # if its the remaining Sabah samples, make them Mn, else keep them the same
+    select(1, 2, 8) %>%
+    filter(Fst_cluster != "Peninsular") %>%
+    write_csv("sample_clusters.csv", col_names = F)
+```
+
+
+### Plot Fst 
+
+Fst_plot.R
+
+```{R,eval=F}
+library(tidyverse)
+
+Fst_matrix <- read_table("Pk.fst", col_names=T) %>%
+    mutate(CHR = str_remove(SNP, "ordered_PKNH_")) %>%
+    mutate(CHR = str_remove(CHR, "_v2.*"))
+
+# Sliding window
+window_size <- 10000
+
+Fst_plot_window <- Fst_matrix %>%
+    filter(FST != "nan") %>%
+    mutate(FST = as.numeric(FST)) %>%
+    mutate(Window = (floor(POS/window_size) * window_size)+ (window_size/2)) %>%
+    group_by(CHR, Window) %>%
+    summarise(Window_Fst = mean(FST), count = n()) %>% # caculate the mean Fst for each window in each chr
+    filter(count > 10) %>% # remove windows with low counts
+    ggplot(aes(x = Window, y = Window_Fst, colour = CHR)) +
+    geom_point() +
+    facet_wrap(~CHR) +
+    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), legend.position = "none") +
+    ylab("Fst") +
+    xlab("Windows (10000)")  +
+    scale_color_viridis_d("Chr") +
+    geom_hline(yintercept = 0.5, colour = "#1F968BFF")
+
+ggsave("Pk_Mn_vs_Mf/Fst_sliding_window_plot.png", dpi = 600, width = 14, Fst_plot_window)
+```
+
+
+
+# Variant selection - [rehh](https://cran.r-project.org/web/packages/rehh/vignettes/rehh.html#LoadData)
+
+Since the whole file is read in for rehh, even though you can only look at a single chr at a time, it is advisable to split large data sets into chromosome-specific files.
+In addition, computing Rsb requires two data frames containing each the inES statistics of one population as obtained by the scan_hh() function - THUS - need to create separate VCF files for the different clusters that we want to compare.
+
+Steps:
+    - create a lsit of the chromosomes
+    - get a list of samples to be included (-sn) in the rehh analysis (from Mn of Mf)
+    - subset VCF into a VCF for individual chromosomes using SelectVariants 
+    - then use sample_clusters.txt created previously for the Fst calculations to create a list of 
+    - SelectVariants is then used again to subset each of the chromosome-specific VCF files into the two clusters
+
+**Need to ammend the sn and xl line manually based on outputs of "cat"**
+
+```{bash}
+grep '##contig=<ID=ordered' PK_consensus_filtered_pass.vcf | sed 's/##contig=<ID=//g' | sed 's/,.*//g' > rehh/chromosome.txt
+
+cat sample_clusters.txt | awk '{print "-sn " $1}' | tr '\n' ' '
+
+for i in $(cat rehh/chromosome.txt)
+    do 
+        java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+        -T SelectVariants \
+        -R $FASTA/strain_A1_H.1.Icor.fasta \
+        -V PK_consensus_filtered_pass.vcf  \
+        -L $i \
+        -sn ERR2214837 -sn ERR2214838 -sn ERR2214839 -sn ERR2214840 -sn ERR2214841 -sn ERR2214842 -sn ERR2214843 -sn ERR2214844 -sn ERR2214845 -sn ERR2214846 -sn ERR2214847 -sn ERR2214848 -sn ERR2214849 -sn ERR2214850 -sn ERR2214851 -sn ERR2214852 -sn ERR2214853 -sn ERR2214854 -sn ERR2214855 -sn ERR2214856 -sn ERR2214857 -sn ERR274221 -sn ERR274222 -sn ERR274224 -sn ERR274225 -sn ERR366425 -sn ERR366426 -sn ERR985372 -sn ERR985373 -sn ERR985374 -sn ERR985375 -sn ERR985376 -sn ERR985377 -sn ERR985378 -sn ERR985379 -sn ERR985380 -sn ERR985381 -sn ERR985382 -sn ERR985383 -sn ERR985384 -sn ERR985385 -sn ERR985386 -sn ERR985387 -sn ERR985388 -sn ERR985389 -sn ERR985390 -sn ERR985391 -sn ERR985392 -sn ERR985393 -sn ERR985394 -sn ERR985395 -sn ERR985396 -sn ERR985397 -sn ERR985398 -sn ERR985399 -sn ERR985400 -sn ERR985401 -sn ERR985402 -sn ERR985403 -sn ERR985404 -sn ERR985405 -sn ERR985406 -sn ERR985407 -sn ERR985408 -sn ERR985409 -sn ERR985410 -sn ERR985411 -sn ERR985412 -sn ERR985413 -sn ERR985415 -sn ERR985416 -sn ERR985417 -sn ERR985418 -sn ERR985419 -sn PK_SB_DNA_001_DKDL210002130-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_002_DKDL210002131-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_003_DKDL210002132-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_005_DKDL210002134-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_006_DKDL210002135-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_008_DKDL210002137-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_009_DKDL210002138-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_010_DKDL210002139-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_013_DKDL210002142-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_014_DKDL210002143-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_015_DKDL210002144-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_021_DKDL210002150-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_023_DKDL210002152-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_029_DKDL210002158-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_031_DKDL210002160-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_032_DKDL210002161-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_034_DKDL210002163-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_035_DKDL210002164-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_036_DKDL210002165-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_038_DKDL210002167-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_039_DKDL210002168-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_040_DKDL210002169-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_044_DKDL210002173-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_045_DKDL210002174-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_046_DKDL210002175-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_047_DKDL210002176-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_048_DKDL210002177-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_049_DKDL210002178-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_051_DKDL210002180-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_052_DKDL210002181-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_053_DKDL210002182-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_054_DKDL210002183-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_055_DKDL210002184-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_057_DKDL210002186-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_067_DKDL210002196-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_068_DKDL210002197-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_069_DKDL210002198-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_070_DKDL210002199-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_072_DKDL210002201-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_073_DKDL210002202-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_074_DKDL210002203-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_077_DKDL210002206-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_081_DKDL210002210-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_082_DKDL210002211-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_083_DKDL210002212-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_086_DKDL210002215-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_087_DKDL210002216-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_088_DKDL210002217-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_089_DKDL210002218-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_090_DKDL210002219-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_094_DKDL210002223-1a_HWHGKDSXY_L4 \
+        -o rehh/${i}.vcf.gz
+    done 
+
+cat sample_clusters.txt | grep 'Mn' | awk '{print "-sn " $1}' | tr '\n' ' '
+cat sample_clusters.txt | grep 'Mn' | awk '{print "-xl_sn " $1}' | tr '\n' ' '
+
+
+cd rehh
+
+ls *vcf.gz > vcf_list.txt
+
+for i in $(cat vcf_list.txt)
+    do  
+        java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+        -T SelectVariants \
+        -R $FASTA/strain_A1_H.1.Icor.fasta \
+        -V $i \
+        -sn ERR2214837 -sn ERR2214838 -sn ERR2214839 -sn ERR2214840 -sn ERR2214841 -sn ERR2214842 -sn ERR2214843 -sn ERR2214844 -sn ERR2214845 -sn ERR2214846 -sn ERR2214847 -sn ERR2214848 -sn ERR2214849 -sn ERR2214850 -sn ERR2214851 -sn ERR2214852 -sn ERR2214853 -sn ERR2214854 -sn ERR2214855 -sn ERR2214856 -sn ERR2214857 -sn ERR274224 -sn ERR274225 -sn ERR366425 -sn ERR985410 -sn ERR985411 -sn ERR985412 -sn ERR985413 -sn ERR985415 -sn ERR985416 -sn ERR985417 -sn ERR985418 -sn ERR985419 -sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 \
+        -o ${i%.vcf.gz}_Mn.vcf.gz
+    done
+
+for i in $(cat vcf_list.txt)
+    do  
+        java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+        -T SelectVariants \
+        -R $FASTA/strain_A1_H.1.Icor.fasta \
+        -V $i \
+        -xl_sn ERR2214837 -xl_sn ERR2214838 -xl_sn ERR2214839 -xl_sn ERR2214840 -xl_sn ERR2214841 -xl_sn ERR2214842 -xl_sn ERR2214843 -xl_sn ERR2214844 -xl_sn ERR2214845 -xl_sn ERR2214846 -xl_sn ERR2214847 -xl_sn ERR2214848 -xl_sn ERR2214849 -xl_sn ERR2214850 -xl_sn ERR2214851 -xl_sn ERR2214852 -xl_sn ERR2214853 -xl_sn ERR2214854 -xl_sn ERR2214855 -xl_sn ERR2214856 -xl_sn ERR2214857 -xl_sn ERR274224 -xl_sn ERR274225 -xl_sn ERR366425 -xl_sn ERR985410 -xl_sn ERR985411 -xl_sn ERR985412 -xl_sn ERR985413 -xl_sn ERR985415 -xl_sn ERR985416 -xl_sn ERR985417 -xl_sn ERR985418 -xl_sn ERR985419 -xl_sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 \
+        -o ${i%.vcf.gz}_Mf.vcf.gz
+    done
+
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/Mf_VS_Mn/
+```
+
+Some of the different stats that can be calculated with rehh:
+    - EHH - Homozygosity (EHH) is defined as the probability that two randomly chosen chromosomes, carrying the core allele, are homozygous over a given surrounding chromosomal region.
+    - iHH - EHH starts at 1 and decays to 0 with increasing distance of t from the focal marker s. For a given core allele, the integrated EHH (iHH) is defined as the area under the EHH curve which, in turn, is defined by the EHH values and associated chromosomal positions.
+    - EHHS - quantity is aimed to reflect the probability that any two randomly chosen chromosomes from a population are homozygous over a given surrounding chromosomal region of a focal marker. 
+    - iES - Like EHH, EHHS has its maximum at the focal marker and decays to 0 with increasing distance from the focal marker. For a given focal marker, analogously to iHH, iES is defined as the integrated EHHS.
+
+```{R,eval=F}
+# Packages
+library(rehh)
+library(tidyverse)
+library(data.table)
+library(R.utils)
+
+# WHOLE GENOME iHS
+
+## need to read in chr files independently and build up an object resulting from the scan_hh outputs
+### first create an empty df to be appended in the loop and a list of chr names
+### the loop then creates the vcf file name (hap_file), and reads in the file to hh, which is then parsed into the scan_hh function to produce an object i that is appended to the growing wgscan object
+### the resulting wgscan produces the same results as the scan_hh object above
+### this can then be parsed into ihh2ihs
+
+chromsomes_files <- c("ordered_PKNH_01_v2", "ordered_PKNH_02_v2", "ordered_PKNH_03_v2", "ordered_PKNH_04_v2", "ordered_PKNH_05_v2",
+    "ordered_PKNH_06_v2", "ordered_PKNH_07_v2", "ordered_PKNH_08_v2", "ordered_PKNH_09_v2", "ordered_PKNH_10_v2", "ordered_PKNH_11_v2",
+    "ordered_PKNH_12_v2", "ordered_PKNH_13_v2", "ordered_PKNH_14_v2")
+
+wgscan <- tibble("CHR" = NA, "POSITION" = NA, "FREQ_A" = NA, "FREQ_D" = NA, "NHAPLO_A" = NA, "NHAPLO_D" = NA, "IHH_A" = NA, "IHH_D" = NA, "IES" = NA, "INES" = NA)
+
+for(i in chromsomes_files) {
+    # haplotype file name for each chromosome
+    hap_file = paste(i, ".vcf.gz", sep = "") # filename pattern
+    # create internal representation
+    hh <- data2haplohh(hap_file = hap_file, 
+                    chr.name = i, 
+                    polarize_vcf = FALSE, # if the AA key is absent
+                    min_perc_geno.mrk = 50, # discard markers genotyped on < 50% of haplotypes
+                    min_maf = 0.05, # discard markers with a minor allele frequency of < 0.05)
+                    vcf_reader = "data.table") # use this package
+    scan <- scan_hh(hh) # perform scan on a single chromosome (calculate iHH/iES values)
+    wgscan <- wgscan %>% # append the wgscan object every round with additional data
+    rbind(scan)
+}
+
+wgs_ihs <- wgscan %>%
+    na.omit() %>%
+    ihh2ihs(min_maf = 0.05, # default
+            freqbin = 0.025 # default
+            )
+
+### Output is a list with two elements:
+### ihs: a data frame with iHS and corresponding p-value piHS (p-value in a −log10 scale assuming the iHS are normally distributed under the neutral hypothesis)
+### frequency.class: a data frame summarizing the derived allele frequency bins used for standardization and mean and standard deviation of the un-standardized values
+wgs_ihs$ihs
+wgs_ihs$frequency.class
+
+## Plot iHS and iHS p-values
+
+iHS <- wgs_ihs$ihs %>%
+    mutate(CHR = str_remove(CHR, "ordered_PKNH_")) %>%
+    mutate(CHR = str_remove(CHR, "_v2")) %>%
+    ggplot(aes(x = CHR, y = IHS, colour = CHR)) +
+    geom_jitter() + 
+    geom_hline(yintercept = 4, linetype = 4, colour = "#1F968BFF") +
+    geom_hline(yintercept = -4, linetype = 4, colour = "#1F968BFF") +
+    theme(legend.position = "none") +
+    scale_x_discrete() +
+    xlab("Chromsome") +
+    ylab("iHS") 
+
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk_Mn_vs_Mf/iHS.png", dpi = 600, width = 10, iHS)
+
+iHS_pvalue <- wgs_ihs$ihs %>%
+    mutate(CHR = str_remove(CHR, "ordered_PKNH_")) %>%
+    mutate(CHR = str_remove(CHR, "_v2")) %>%
+    ggplot(aes(x = CHR, y = LOGPVALUE, colour = CHR)) +
+    geom_jitter() + 
+    geom_hline(yintercept = 4, linetype = 2, colour = "#1F968BFF") + # adjusted with bonferonni
+    theme(legend.position = "none") +
+    xlab("Chromosomes") +
+    ylab("iHS p-value")
+
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk_Mn_vs_Mf/iHS_pvalue.png", dpi = 600, width = 10, iHS_pvalue)
+
+## Plotting using rehh
+
+png('/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk_Mn_vs_Mf/iHS_rehh.png')
+manhattanplot(wgs_ihs)
+dev.off()
+
+png('/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk_Mn_vs_Mf/iHS_p_rehh.png')
+manhattanplot(wgs_ihs, pval = TRUE, threshold = 4)
+dev.off()
+
+
+## QQ-Plot
+png('/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk_Mn_vs_Mf/iHS_QQ.png')
+distribplot(wgs_ihs$ihs$IHS, 
+            xlab = "iHS", 
+            qqplot = TRUE)
+dev.off()
+
+#######################################################################################
+
+
+# Comparing EHH between clusters
+
+# CALCULATE Rsb  and XP-EHH
+
+## pairwise population statistic 
+## ratio of EHHS between populations
+
+chromsomes_files <- c("ordered_PKNH_01_v2", "ordered_PKNH_02_v2", "ordered_PKNH_03_v2", "ordered_PKNH_04_v2", "ordered_PKNH_05_v2",
+    "ordered_PKNH_06_v2", "ordered_PKNH_07_v2", "ordered_PKNH_08_v2", "ordered_PKNH_09_v2", "ordered_PKNH_10_v2", "ordered_PKNH_11_v2",
+    "ordered_PKNH_12_v2", "ordered_PKNH_13_v2", "ordered_PKNH_14_v2")
+
+### Mn
+wgscan_Mn <- tibble("CHR" = NA, "POSITION" = NA, "FREQ_A" = NA, "FREQ_D" = NA, "NHAPLO_A" = NA, "NHAPLO_D" = NA, "IHH_A" = NA, "IHH_D" = NA, "IES" = NA, "INES" = NA)
+
+for(i in chromsomes_files) {
+    # haplotype file name for each chromosome
+    hap_file = paste(i, "_Mn.vcf.gz", sep = "") # filename pattern
+    # create internal representation
+    hh <- data2haplohh(hap_file = hap_file, 
+                    chr.name = i, 
+                    polarize_vcf = FALSE, # if the AA key is absent
+                    min_perc_geno.mrk = 25, # discard markers genotyped on < 25% of haplotypes
+                    min_maf = 0.05, # discard markers with a minor allele frequency of < 0.05)
+                    vcf_reader = "data.table") # use this package
+    scan <- scan_hh(hh) # perform scan on a single chromosome (calculate iHH/iES values)
+    wgscan_Mn <- wgscan_Mn %>% # append the wgscan object every round with additional data
+    rbind(scan)
+}
+
+### Mf
+wgscan_Mf <- tibble("CHR" = NA, "POSITION" = NA, "FREQ_A" = NA, "FREQ_D" = NA, "NHAPLO_A" = NA, "NHAPLO_D" = NA, "IHH_A" = NA, "IHH_D" = NA, "IES" = NA, "INES" = NA)
+
+for(i in chromsomes_files) {
+    # haplotype file name for each chromosome
+    hap_file = paste(i, "_Mf.vcf.gz", sep = "") # filename pattern
+    # create internal representation
+    hh <- data2haplohh(hap_file = hap_file, 
+                    chr.name = i, 
+                    polarize_vcf = FALSE, # if the AA key is absent
+                    min_perc_geno.mrk = 50, # discard markers genotyped on < 50% of haplotypes
+                    min_maf = 0.05, # discard markers with a minor allele frequency of < 0.05)
+                    vcf_reader = "data.table") # use this package
+    scan <- scan_hh(hh) # perform scan on a single chromosome (calculate iHH/iES values)
+    wgscan_Mf <- wgscan_Mf %>% # append the wgscan object every round with additional data
+    rbind(scan)
+}
+
+# Rsb
+Rsb <- ines2rsb(
+        scan_pop1 = wgscan_Mn,
+        scan_pop2 = wgscan_Mf,
+        popname1 = "Mn",
+        popname = "Mf"
+    )
+
+# XP-EHH
+XP_EHH <- ies2xpehh(
+        scan_pop1 = wgscan_Mn,
+        scan_pop2 = wgscan_Mf,
+        popname1 = "Mn",
+        popname = "Mf"
+    )
+
+# Plot Rsb and p-value
+Rsb_plot <- Rsb %>%
+    na.omit() %>%
+    mutate(CHR = str_remove(CHR, "ordered_PKNH_")) %>%
+    mutate(CHR = str_remove(CHR, "_v2")) %>%
+    rename("Rsb" = "RSB_Mn_Mf") %>%
+    ggplot(aes(x = CHR, y = Rsb, colour = CHR)) +
+    geom_jitter() + 
+    geom_hline(yintercept = 5, linetype = 5, colour = "#1F968BFF") +
+    geom_hline(yintercept = -5, linetype = 5, colour = "#1F968BFF") +
+    theme(legend.position = "none") +
+    scale_colour_viridis_d() +
+    xlab("Chromsome") +
+    ylab("Rsb") 
+
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk_Mn_vs_Mf/Rsb.png", dpi = 600, width = 10, Rsb_plot)
+
+Rsb_pvalue <- Rsb %>%
+    na.omit() %>%
+    mutate(CHR = str_remove(CHR, "ordered_PKNH_")) %>%
+    mutate(CHR = str_remove(CHR, "_v2")) %>%
+    ggplot(aes(x = CHR, y = LOGPVALUE, colour = CHR)) +
+    geom_jitter() + 
+    geom_hline(yintercept = 6, linetype = 2, colour = "#1F968BFF") + # adjusted with bonferonni
+    theme(legend.position = "none") +
+    scale_colour_viridis_d() +
+    xlab("Chromosomes") +
+    ylab("Rsb p-value")
+
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk_Mn_vs_Mf/Rsb_pvalue.png", dpi = 600, width = 10, Rsb_pvalue)
+
+#Plot XP-EHH and p-value
+
+XP_EHH_plot <- XP_EHH %>%
+    na.omit() %>%
+    mutate(CHR = str_remove(CHR, "ordered_PKNH_")) %>%
+    mutate(CHR = str_remove(CHR, "_v2")) %>%
+    ggplot(aes(x = CHR, y = XPEHH_Mn_Mf, colour = CHR)) +
+    geom_jitter() + 
+    geom_hline(yintercept = 5, linetype = 5, colour = "#1F968BFF") +
+    geom_hline(yintercept = -5, linetype = 5, colour = "#1F968BFF") +
+    theme(legend.position = "none") +
+    scale_colour_viridis_d() +
+    xlab("Chromsome") +
+    ylab("XP_EHH") 
+
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk_Mn_vs_Mf/XP_EHH.png", dpi = 600, width = 10, XP_EHH_plot)
+
+XP_EHH_pvalue <- XP_EHH %>%
+    na.omit() %>%
+    mutate(CHR = str_remove(CHR, "ordered_PKNH_")) %>%
+    mutate(CHR = str_remove(CHR, "_v2")) %>%
+    ggplot(aes(x = CHR, y = LOGPVALUE, colour = CHR)) +
+    geom_jitter() + 
+    geom_hline(yintercept = 6, linetype = 2, colour = "#1F968BFF") + # adjusted with bonferonni
+    theme(legend.position = "none") +
+    scale_colour_viridis_d() +
+    xlab("Chromosomes") +
+    ylab("XP_EHH p-value")
+
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk_Mn_vs_Mf/XP_EHH_pvalue.png", dpi = 600, width = 10, XP_EHH_pvalue)
+
+# Rsb vs XP-EHH
+
+Rsb_XP_comaprison <- Rsb %>%
+    left_join(
+        XP_EHH %>%
+            select(1:3)
+        ) %>%
+    na.omit() %>%
+    ggplot(aes(x = RSB_Mn_Mf, y = XPEHH_Mn_Mf, colour = CHR)) +
+    geom_point() + 
+    theme(legend.position = "none") +
+    scale_colour_viridis_d() +
+    xlab("Rsb") +
+    ylab("XP_EHH") +
+    geom_abline()
+
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk_Mn_vs_Mf/XP_Rsb_comparison.png", dpi = 600, width = 10, Rsb_XP_comaprison)
+```
+
+
+
+
+#########################################################################################################
+
+
+
+
+# Comparing Mn and Mf - just for Sabah samples
+
+## Here we subset calculate the distances based on a subset of the data by only including Sabah samples.
+
+```{bash,eval=F}
+cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses
+
+cat Pk.fam | grep 'Sabah' > include_samples.txt
+
+plink --bfile cleaned --keep include_samples.txt --cluster --mds-plot 10 --out Pk
+plink --bfile cleaned --keep include_samples.txt --pca --out Pk
+plink --bfile cleaned --keep include_samples.txt --distance square --out Pk
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/Mf_VS_Mn_SABAH_ONLY/ordination_plots_Mf_VS_Mn_SABAH_ONLY.R
+```
+
+## Fst statistic - Mn vs Mf within Sabah
+
+```{bash,eval=F}
+plink --file Pk --maf 0.05 --geno 0.25 --mind 0.25 --make-bed --out cleaned
+sed 's/ /,/g' cleaned.fam > Pk.csv
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/pheno_to_plink_fam.R
+sed 's/,/ /g' Pk.csv > Pk.fam
+
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/Mf_VS_Mn_SABAH_ONLY/sample_clusters_Mf_VS_Mn_SABAH_ONLY.R
+sed 's/,/ /g' sample_clusters.csv > sample_clusters.txt
+rm -f sample_clusters.csv
+
+plink --bfile cleaned \
+  --within sample_clusters.txt \
+  --keep include_samples.txt \
+  --fst \
+  --allow-no-sex \
+  --out Pk
+
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/Mf_VS_Mn_SABAH_ONLY/Fst_plot_Mf_VS_Mn_SABAH_ONLY.R
+```
+
+
+# Variant selection - between Mn and Mf within Sabah
+
+**Need to ammend the sn and xl line manually based on outputs of "cat"**
+
+```{bash}
+grep '##contig=<ID=ordered' PK_consensus_filtered_pass.vcf | sed 's/##contig=<ID=//g' | sed 's/,.*//g' > rehh/chromosome.txt
+
+cat sample_clusters.txt | awk '{print "-sn " $1}' | tr '\n' ' '
+
+for i in $(cat rehh/chromosome.txt)
+    do 
+        java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+        -T SelectVariants \
+        -R $FASTA/strain_A1_H.1.Icor.fasta \
+        -V PK_consensus_filtered_pass.vcf  \
+        -L $i \
+        -sn PK_SB_DNA_001_DKDL210002130-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_002_DKDL210002131-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_003_DKDL210002132-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_005_DKDL210002134-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_006_DKDL210002135-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_008_DKDL210002137-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_009_DKDL210002138-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_010_DKDL210002139-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_013_DKDL210002142-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_014_DKDL210002143-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_015_DKDL210002144-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_021_DKDL210002150-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_023_DKDL210002152-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_029_DKDL210002158-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_031_DKDL210002160-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_032_DKDL210002161-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_034_DKDL210002163-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_035_DKDL210002164-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_036_DKDL210002165-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_038_DKDL210002167-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_039_DKDL210002168-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_040_DKDL210002169-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_044_DKDL210002173-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_045_DKDL210002174-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_046_DKDL210002175-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_047_DKDL210002176-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_048_DKDL210002177-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_049_DKDL210002178-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_051_DKDL210002180-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_052_DKDL210002181-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_053_DKDL210002182-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_054_DKDL210002183-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_055_DKDL210002184-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_057_DKDL210002186-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_067_DKDL210002196-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_068_DKDL210002197-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_069_DKDL210002198-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_070_DKDL210002199-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_072_DKDL210002201-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_073_DKDL210002202-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_074_DKDL210002203-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_077_DKDL210002206-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_081_DKDL210002210-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_082_DKDL210002211-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_083_DKDL210002212-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_086_DKDL210002215-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_087_DKDL210002216-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_088_DKDL210002217-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_089_DKDL210002218-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_090_DKDL210002219-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_094_DKDL210002223-1a_HWHGKDSXY_L4 \
+        -o rehh/${i}.vcf.gz
+    done 
+
+cat sample_clusters.txt | grep 'Mn' | awk '{print "-sn " $1}' | tr '\n' ' '
+cat sample_clusters.txt | grep 'Mn' | awk '{print "-xl_sn " $1}' | tr '\n' ' '
+
+
+cd rehh
+rm -f *Mf.vcf.gz* *Mn.vcf.gz*
+ls *vcf.gz > vcf_list.txt
+
+for i in $(cat vcf_list.txt)
+    do  
+        java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+        -T SelectVariants \
+        -R $FASTA/strain_A1_H.1.Icor.fasta \
+        -V $i \
+        -sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 \
+        -o ${i%.vcf.gz}_Mn.vcf.gz
+    done
+
+for i in $(cat vcf_list.txt)
+    do  
+        java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+        -T SelectVariants \
+        -R $FASTA/strain_A1_H.1.Icor.fasta \
+        -V $i \
+        -xl_sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 \
+        -o ${i%.vcf.gz}_Mf.vcf.gz
+    done
+
+
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/Mf_VS_Mn_SABAH_ONLY/rehh_Mf_VS_Mn_SABAH_ONLY.R
+```
+
+
+
+#########################################################################################################
+
+
+
+
+# Comparing Sabah vs Kapit vs Betong
+
+## Here we subset calculate the distances based on a subset of the data by only including samples from Sabah, Kapit and Betong.
+
+```{bash,eval=F}
+cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses
+
+cat Pk.fam | grep 'Sabah\|Betong\|Kapit' > include_samples.txt
+
+plink --bfile cleaned --keep include_samples.txt --cluster --mds-plot 10 --out Pk
+plink --bfile cleaned --keep include_samples.txt --pca --out Pk
+plink --bfile cleaned --keep include_samples.txt --distance square --out Pk
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/Pk_Sabah_Kapit_Betong/ordination_plots_Mf_VS_Mn_SABAH_ONLY.R
+```
+
+**Did NOT progress beyond clutering and trees as it did not look interesting.**
+
+
+# Comparing districts within Sabah
+
+**Attempted to create clusters using geographic distribution of collected samples, but no patterns emerged.**
+
+
+# Identity by descent with hmmIBD
+
+
+## Convert VCF to correct format for [hmmIBD](https://github.com/glipsnort/hmmIBD)
+
+Filtering
+    - need to first create a list of samples to exclude - use PLINK cleaned.fam data to do an inverse fgrep of the original file list in Pk.fam
+    - filter out variants based on MAF and missingess - from BCF file
+
+hmmIBD format:
+ - tab-delimited text file, with one SNP per line. 
+ - First two columns are chromosome and position, followed by one sample per column. 
+ - Header line, with sample names. 
+ - Genotypes are coded by number: 
+    - -1 for missing data
+    - 0 for the first allele
+    - 1 for the second, etc. 
+ - SNPs and indels can be treated as equal.
+ - Variants must be in chromosome and position order.
+ - Variants can have between two and eight alleles.
+
+
+```{bash,eval=F}
+awk '{print $1}' cleaned.fam > exclude_tmp1.txt
+bcftools view PK_consensus_filtered_pass.bcf | grep '#CHROM' | tr '\t' '\n' | sed -n '/ERR2214837/,$p' > exclude_tmp2.txt
+fgrep -v -f exclude_tmp1.txt exclude_tmp2.txt > hmmIBD/exclude.txt
+rm -f exclude_tmp1.txt exclude_tmp2.txt
+
+awk '{print $2}' cleaned.bim | sed 's/:/\t/g' | awk '{print $1"\t"$2}' | uniq -u > hmmIBD/grep_patterns.tsv
+
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/hmmIBD_genotype_file.R 
+cd hmmIBD
+export PATH=$PATH:/g/data/pq84/bin/hmmIBD/   
+hmmIBD -i hmmIBD.tsv -b exclude.txt -o Pk
+```
+
+```{R,eval=F}
+# Packages
+library(dplyr)
+library(readr)
+library(stringr)
+library(data.table)
+
+# Read in and wrangle VCF
+
+read_tsv("hmmIBD/grep_patterns.tsv", col_names = c("CHROM", "POS")) %>%
+        left_join(
+                read_table("PK_consensus_filtered_pass.vcf", skip = 86) %>%
+                rename("CHROM" = `#CHROM`) # this first section selects only variants that passed the PLINK filters we applied
+        ) %>%
+        mutate(CHROM = str_remove(CHROM, "ordered_PKNH_"),
+        CHROM = str_remove(CHROM, "_v2")) %>%
+        mutate_at(c(10:ncol(.)), ~str_remove(., ":.*")) %>% 
+        mutate_at(c(10:ncol(.)), ~ifelse(. %like% "1/1" | . %like% "1/0" | . %like% "0/1" , "1", .)) %>% 
+        mutate_at(c(10:ncol(.)), ~ifelse(. %like% "2/2" | . %like% "2/0" | . %like% "0/2" , "2", .)) %>% 
+        mutate_at(c(10:ncol(.)), ~ifelse(. %like% "3/3" | . %like% "3/0" | . %like% "0/3" , "3", .)) %>% 
+        mutate_at(c(10:ncol(.)), ~ifelse(. %like% "4/4" | . %like% "4/0" | . %like% "0/4" , "4", .)) %>% 
+        mutate_at(c(10:ncol(.)), ~ifelse(. %like% "0/0" , "0", .)) %>% # 0 for reference allele
+        mutate_at(c(10:ncol(.)), ~ifelse(. %like% "./." , "-1", .)) %>% # for missing 
+        select(-c(3:9)) %>%
+        arrange(CHROM, POS) %>%
+        write_tsv("hmmIBD/hmmIBD.tsv")   
+```
+
+## Claculate pairwise statistics from hmmIBD output (thanks Edwin!)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 R script used above for manually curating the clusters - **script dependent on comparison/clusters**
 
@@ -663,66 +1226,4 @@ Clusters %>%
     filter(Fst_cluster == "Mn" | Fst_cluster == "New_cluster") %>%
     select(1, 2, 8) %>%
     write_csv("sample_clusters.csv", col_names = F)
-
 ```
-
-### Plot Fst 
-
-```{R,eval=F}
-library(tidyverse)
-
-Fst_matrix <- read_table("Pk.fst", col_names=T) %>%
-    mutate(CHR = str_remove(SNP, "ordered_PKNH_")) %>%
-    mutate(CHR = str_remove(CHR, "_v2.*"))
-
-# Sliding window
-window_size <- 10000
-
-Fst_plot_window <- Fst_matrix %>%
-    filter(FST != "nan") %>%
-    mutate(FST = as.numeric(FST)) %>%
-    mutate(Window = (floor(POS/window_size) * window_size)+ (window_size/2)) %>%
-    group_by(CHR, Window) %>%
-    summarise(Window_Fst = mean(FST), count = n()) %>% # caculate the mean Fst for each window in each chr
-    filter(count > 10) %>% # remove windows with low counts
-    ggplot(aes(x = Window, y = Window_Fst, colour = CHR)) +
-    geom_point() +
-    facet_wrap(~CHR) +
-    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), legend.position = "none") +
-    ylab("Fst") +
-    xlab("Windows (10000)") +
-    scale_color_discrete("Chr") +
-    geom_hline(yintercept = 0.4, colour = "#1F968BFF")
-
-ggsave("Fst_sliding_window_plot.png", dpi = 600, width = 14, Fst_plot_window)
-
-
-# Per SNP
-Fst_plot <- Fst_matrix %>% 
-    filter(CHR == "14") %>%
-    ggplot(aes(x = POS, y = FST, colour = CHR)) +
-    geom_point()  +
-    geom_hline(yintercept = 0.4, colour = "#1F968BFF")
-    #theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) 
-
-ggsave("Fst_SNP_plot.png", dpi = 600, width = 14, Fst_plot)
-```
-
-
-
-
-
-
-
-
-
-
-
-
-
-## Linkage-disequilibrium
-
-If you want an LD report: https://plink.readthedocs.io/en/latest/plink_ex/
-*Note* Requires a lot of resources (for example, when applying to my clean dataset of ~45K variants PLINK tried to use 47 threads and 128GB of ram)
-plink --bfile cleaned --allow-no-sex --r2 dprime inter-chr with-freqs --ld-window-r2 0.005
-
