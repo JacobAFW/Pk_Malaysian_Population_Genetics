@@ -209,12 +209,6 @@ metadata <- read_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outp
 
 ### add a priori classfication of Sabah clusters based on trees
 
-
-
-
-
-
-############################################# WORK IN PROGRESS
 metadata <- metadata %>% 
     mutate(Cluster = ifelse(grepl("PK_SB_DNA_011", Sample) | # does the ID match any of these
                                 grepl("PK_SB_DNA_091", Sample) | 

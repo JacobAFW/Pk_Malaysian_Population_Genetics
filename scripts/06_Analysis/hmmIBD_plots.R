@@ -303,30 +303,73 @@ IBD.cutoffs <- c(0.125, 0.25, 0.5)
 relaxed.IBD.cutoffs <- c(IBD.cutoffs, 1)
 relaxed.IBD.cutoffs <- relaxed.IBD.cutoffs * 0.95
 
-metadata <-
-  read.delim("../metadata/Pv4_samples.txt",
-             check.names = FALSE,
-             encoding = "UTF-8")
-
-
-
-
 
 ## Pk
 library(igraph)
 library(tidyverse)
 library(MetamapsDB)
 
-Pk.IBD <- read_table("Pk.hmm_fract.txt")
-Pk.IBD.full <-  read_table("Pk.hmm.txt")
+Pk.IBD.file <- "Pk.hmm_fract.txt"
+Pk.IBD <- read.delim(Pk.IBD.file)
 
 metadata <- read_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk.csv", col_names = FALSE) %>% 
         select(1, 6, 7) %>%
         rename(Sample = X1) %>%
         rename(Location = X6) %>%
         rename(Cluster = X7) %>% 
-        as.data.frame()
+        as.data.frame() 
 
+metadata <- metadata %>% 
+    mutate(Cluster = ifelse(grepl("PK_SB_DNA_011", Sample) | # does the ID match any of these
+                                grepl("PK_SB_DNA_091", Sample) | 
+                                grepl("PK_SB_DNA_043", Sample) |
+                                grepl("PK_SB_DNA_016", Sample) |  
+                                grepl("PK_SB_DNA_092", Sample) | 
+                                grepl("PK_SB_DNA_030", Sample) | 
+                                grepl("PK_SB_DNA_093", Sample) | 
+                                grepl("PK_SB_DNA_042", Sample) | 
+                                grepl("PK_SB_DNA_063", Sample) |
+                                grepl("PK_SB_DNA_028", Sample), "Mn", .$Cluster)) %>% # if not, just use values from X7 - clusters and Sabah
+    mutate(Cluster = ifelse(Cluster == "Sabah", "Mf", .$Cluster)) # if its the remaining Sabah samples, make them Mn, else keep them the same
+
+
+####################################################### Work in progress
+# Edwins plots
+Pk.label.cols <- c("Cluster")
+Pk.legend.titles <- list("Cluster" = "Cluster")
+Pk.prefixes <- metadata %>% 
+  select(Cluster) %>%
+  unique() %>% 
+  as.list()
+
+plot.IBDs(
+  Pk.prefixes,
+  IBD.cutoffs,
+  Pk.IBD,
+  metadata,
+  Pk.label.cols,
+  legend.titles = Pk.legend.titles
+)
+
+Pk.median.file <- "Pk_pairwise_IBD_median.txt"
+Pk.median <- read.pairwise.matrix(Pk.median.file)
+
+Pk.IBD.cutoffs <- c(fivenum(Pk.median), relaxed.IBD.cutoffs)
+
+IBDs.plot.file <- "Pk_major_IBDs.pdf"
+
+plot.IBD(
+  IBDs.plot.file,
+  Pk.IBD.cutoffs,
+  Pk.IBD,
+  metadata,
+  "Cluster",
+  legend.title = "Cluster"
+)
+
+
+############################################# WORK IN PORGRESS
+## Plotting with ggplot
 .create.vertices <- function(metadata, sample.col = "Sample") {
     vertices <- data.frame(metadata[, sample.col])
     names(vertices) <- sample.col
@@ -338,9 +381,7 @@ vertices <- .create.vertices(metadata)
 
 IBD.graph <- graph_from_data_frame(Pk.IBD, directed = FALSE, vertices = vertices)
 
-
-## Plotting with ggplot
-mylayout <- igraph::layout_as_tree(IBD.graph) #create a circular layout
+mylayout <- igraph::layout_as_tree(IBD.graph) 
 IBD.graph$layout = mylayout #store layout as a graph attribute
 
 
@@ -355,3 +396,27 @@ IBD_plot <- MetamapsDB::ig2ggplot(IBD.graph,
     theme(legend.position = 'none')
 
 ggsave("IBD_plot.png", dpi = 600, IBD_plot)
+
+
+######################################################## TROUBLESHOOTING
+
+Pk.IBD %>%
+  select(1) %>%
+  rename(sample2 = sample1) %>%
+  rbind(
+    Pk.IBD %>%
+    select(2)
+  ) %>%
+  unique()
+
+
+graph_from_data_frame(Pk.IBD, directed = FALSE, vertices)
+
+
+Pk.IBD.file <-
+  "Pk.hmm_fract.txt"
+Pk.IBD <- read.delim(Pk.IBD.file)
+IBD.graph <- graph_from_data_frame(Americas.IBD, directed = FALSE, vertices)
+
+
+######################################################## 
