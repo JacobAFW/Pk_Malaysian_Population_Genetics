@@ -200,7 +200,7 @@ names(statistics) <- c("Min.", "1st Qu.", "Median", "Mean",
 # Pk Clusters in Malaysia
 
 ## stat medians
-metadata <- read_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk.csv", col_names = FALSE) %>% 
+metadata1 <- read_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk.csv", col_names = FALSE) %>% 
         select(1, 6, 7) %>%
         rename(Sample = X1) %>%
         rename(Location = X6) %>%
@@ -209,7 +209,7 @@ metadata <- read_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outp
 
 ### add a priori classfication of Sabah clusters based on trees
 
-metadata <- metadata %>% 
+metadata2 <- metadata1 %>% 
     mutate(Cluster = ifelse(grepl("PK_SB_DNA_011", Sample) | # does the ID match any of these
                                 grepl("PK_SB_DNA_091", Sample) | 
                                 grepl("PK_SB_DNA_043", Sample) |
@@ -219,13 +219,42 @@ metadata <- metadata %>%
                                 grepl("PK_SB_DNA_093", Sample) | 
                                 grepl("PK_SB_DNA_042", Sample) | 
                                 grepl("PK_SB_DNA_063", Sample), "Mn", .$Cluster)) %>% # if not, just use values from X7 - clusters and Sabah
-    mutate(Cluster = ifelse(Cluster == "Sabah", "Mf", .$Cluster)) # if its the remaining Sabah samples, make them Mn, else keep them the same
+    mutate(Cluster = ifelse(Cluster == "Sabah", "Mf", .$Cluster)) %>% # if its the remaining Sabah samples, make them Mn, else keep them the same
+    mutate(Sample = str_remove(Sample, "_DK.*")) %>%
+    left_join(
+      read_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD_geo_clusters/geo_clusters.csv") %>%
+        select(Sample, Geo_cluster)
+    ) 
 
-Pk.IBD <- read_table("Pk.hmm_fract.txt")
-Pk.pairwise.median <- calculate.pairwise.matrix(Pk.IBD, metadata, "Cluster", median)
-save.pairwise.matrix(Pk.pairwise.median, "Pk_pairwise_IBD_median.txt")
+# wrangle the metadata to re-introduce the full sample names (removed in the last step to align with geo clusters) so that they align with the IBD data
+metadata <- metadata2 %>%
+  left_join(
+    metadata1 %>%
+      select(1) %>%
+      rename(Sample2 = Sample) %>%
+      mutate(Sample = str_remove(Sample2, "_DK.*"))
+  ) %>% 
+  mutate(Sample = Sample2) %>%
+  select(-Sample2) 
+  
+
+
+# Mf
+Pk.IBD <- read_table("Pk_Mf.hmm_fract.txt") 
+Pk.pairwise.median <- calculate.pairwise.matrix(Pk.IBD, metadata, "Geo_cluster", median)
+save.pairwise.matrix(Pk.pairwise.median, "Pk_Mf_pairwise_IBD_median.txt")
 
 ## stat summary
-Pk.pairwise.summary <- calculate.pairwise.table(Pk.IBD, metadata, "Cluster", statistics)
-save.pairwise.table(Pk.pairwise.summary, "Pk_pairwise_summary.txt")
+Pk.pairwise.summary <- calculate.pairwise.table(Pk.IBD, metadata, "Geo_cluster", statistics)
+save.pairwise.table(Pk.pairwise.summary, "Pk_Mf_pairwise_summary.txt")
+
+
+# Mn
+Pk.IBD <- read_table("Pk_Mn.hmm_fract.txt") 
+Pk.pairwise.median <- calculate.pairwise.matrix(Pk.IBD, metadata, "Geo_cluster", median)
+save.pairwise.matrix(Pk.pairwise.median, "Pk_Mn_pairwise_IBD_median.txt")
+
+## stat summary
+Pk.pairwise.summary <- calculate.pairwise.table(Pk.IBD, metadata, "Geo_cluster", statistics)
+save.pairwise.table(Pk.pairwise.summary, "Pk_Mn_pairwise_summary.txt")
 

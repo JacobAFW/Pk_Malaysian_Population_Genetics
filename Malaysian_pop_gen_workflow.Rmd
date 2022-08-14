@@ -1161,21 +1161,3 @@ rm -f Consensus_fixed.vcf
 echo "---------------------------------------"
 echo "Finsihed"
 ```
-
-# 06_Analysis
-
-File(s):  
-
-Version(s):
-
-
-Submission:
-Single PBS script.
-
-Notes:
-
-
-Script:
-
-```{R,eval=F}
-```

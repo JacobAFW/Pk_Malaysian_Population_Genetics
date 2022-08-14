@@ -157,3 +157,12 @@ NJT_tree_plot <- ggtree(NJT_tree, layout="circular", size = 0.5, aes(colour = Cl
     scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF", "#73D055FF"))
     
 ggsave("Pk_clusters/NJT_tree_labelled_rooted.png", dpi = 600, height = 20, width = 20, limitsize = FALSE, NJT_tree_plot)
+
+NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
+    theme(legend.position = "right", 
+    legend.title = element_blank(), 
+    legend.key = element_blank()) +
+    geom_tiplab(size = 2) +
+    scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF", "#73D055FF"))
+
+ggsave("Pk_clusters/NJT_tree_labelled_unrooted.png", dpi = 600, height = 20, width = 20, limitsize = FALSE, NJT_tree_plot)

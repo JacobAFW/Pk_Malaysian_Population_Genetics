@@ -56,15 +56,13 @@ Steps:
 Add annotation the ID column of your VCF file.
 bcftools annotate --threads 10 --set-id +'%CHROM\_%POS\_%REF\_%FIRST_ALT' PK_consensus_filtered_pass.vcf > moimix/PK_consensus_filtered_pass.vcf
 
-bcftools annotate --threads 10 --set-id +'%CHROM\_%POS\_%REF\_%FIRST_ALT' PK_consensus_filtered_pass.vcf | sed 's/Number=A/Number=./g' | bcftools view --max-ac :alt1 - > moimix/PK_consensus_filtered_pass_test.vcf
-
 
 
 Run below in R
 ```{R,eval=F}
 # Converting VCF to GDS for estMOI
 library(SeqArray)
-seqVCF2GDS("moimix/PK_consensus_filtered_pass.vcf", "moimix/PK_consensus_filtered_pass.gds")
+seqVCF2GDS("moimix/PK_consensus_filtered_pass.vcf", "moimix/PK_consensus_filtered_pass.gds", storage.option = "LZ4_RA")
 isolates <- seqOpen("moimix/PK_consensus_filtered_pass.gds") # read into R
 seqSummary(isolates)
 sample.id <- seqGetData(isolates, "sample.id")
@@ -85,7 +83,7 @@ isolate_baf <- bafMatrix(isolates)
 ## Estimate MOI with binommix
 set.seed(2022)
 counts <- alleleCounts(isolates)
-m1 <- binommix(counts, samplie.id = "ERR2214837", k = 2)
+m1 <- binommix(counts, sample.id = "ERR2214837", k = 2)
 summary(m1)
 param.estimates <- getTheta(m1)
 param.estimates
@@ -527,6 +525,15 @@ NJT_tree_plot <- ggtree(NJT_tree, layout="circular", size = 0.5, aes(colour = Cl
     scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF", "#73D055FF"))
     
 ggsave("Pk_clusters/NJT_tree_labelled_rooted.png", dpi = 600, height = 20, width = 20, limitsize = FALSE, NJT_tree_plot)
+
+NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
+    theme(legend.position = "right", 
+    legend.title = element_blank(), 
+    legend.key = element_blank()) +
+    geom_tiplab(size = 2) +
+    scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF", "#73D055FF"))
+
+ggsave("Pk_clusters/NJT_tree_labelled_unrooted.png", dpi = 600, height = 20, width = 20, limitsize = FALSE, NJT_tree_plot)
 ```
 
 
@@ -537,7 +544,7 @@ ggsave("Pk_clusters/NJT_tree_labelled_rooted.png", dpi = 600, height = 20, width
 
 # How do the Sabah samples fit into the Mn and Mf clusters (within Malaysian Borneo)?
 
-## Here we subset calculate the distances based on a subset of the data by excluding Peninsular samples, so that we're only investigating Mn and Mf clusters.
+## Here we calculate the distances based on a subset of the data by excluding Peninsular samples, so that we're only investigating Mn and Mf clusters.
 
 ```{bash,eval=F}
 cat Pk.fam | grep 'Peninsular' > exclude_samples.txt
@@ -1072,8 +1079,17 @@ Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysi
 **Attempted to create clusters using geographic distribution of collected samples, but no patterns emerged.**
 
 
-# Identity by descent with hmmIBD
 
+
+
+#########################################################################################################
+
+
+
+
+# Exploring clustering with identity by descent using hmmIBD
+
+Here we explore clustering using IBD instead of IBS. hmmIBD uses a  hidden Markov model to detect segments of shared ancestry in genetics sequences
 
 ## Convert VCF to correct format for [hmmIBD](https://github.com/glipsnort/hmmIBD)
 
@@ -1137,6 +1153,1277 @@ read_tsv("hmmIBD/grep_patterns.tsv", col_names = c("CHROM", "POS")) %>%
 ```
 
 ## Claculate pairwise statistics from hmmIBD output (thanks Edwin!)
+
+File: hmmIBD_stats.R
+
+This code was provided by Edwin.
+
+```{R,eval=F}
+# Packages
+library(dplyr)
+library(readr)
+library(stringr)
+library(data.table)
+
+# Define Edwins Function
+.add.label.to.IBD <-
+  function(IBD, metadata, label.col, sample.col = "Sample") {
+    metadata <- metadata[, c(sample.col, label.col)]
+    
+    IBD <- merge(
+      IBD,
+      metadata,
+      by.x = "sample1",
+      by.y = sample.col,
+      all.x = TRUE,
+      sort = FALSE
+    )
+    colnames(IBD)[length(IBD)] <- paste0(label.col, 1)
+    
+    IBD <- merge(
+      IBD,
+      metadata,
+      by.x = "sample2",
+      by.y = sample.col,
+      all.x = TRUE,
+      sort = FALSE
+    )
+    colnames(IBD)[length(IBD)] <- paste0(label.col, 2)
+    
+    IBD
+  }
+
+
+.create.pairwise.matrix <- function(metadata, label.col) {
+  unique.labels <- sort(unique(metadata[, label.col]))
+  labels.length <- length(unique.labels)
+  matrix(
+    nrow = labels.length,
+    ncol = labels.length,
+    dimnames = list(unique.labels, unique.labels)
+  )
+}
+
+
+.populate.pairwise.matrix.with.statistic <-
+  function(pairwise.matrix,
+           IBD,
+           label.col,
+           statistic) {
+    label.cols1 <- paste0(label.col, 1)
+    label.cols2 <- paste0(label.col, 2)
+    labels <- rownames(pairwise.matrix)
+    
+    for (i in 1:nrow(pairwise.matrix)) {
+      label1 <- labels[i]
+      
+      for (j in 1:ncol(pairwise.matrix)) {
+        if (i < j)
+          break
+        label2 <- labels[j]
+        
+        e11 <- IBD[, label.cols1] == label1
+        e12 <- IBD[, label.cols1] == label2
+        e21 <- IBD[, label.cols2] == label1
+        e22 <- IBD[, label.cols2] == label2
+        
+        pairwise.matrix[i, j] <-
+          statistic(IBD[(e11 &
+                           e22) | (e12 & e21), "fract_sites_IBD"]) 
+      }
+    }
+    
+    pairwise.matrix
+  }
+
+
+calculate.pairwise.matrix <-
+  function(IBD,
+           metadata,
+           label.col,
+           statistic,
+           sample.col = "Sample") {
+    IBD <-
+      .add.label.to.IBD(IBD, metadata, label.col, sample.col = sample.col)
+    
+    pairwise.matrix <-
+      .create.pairwise.matrix(IBD, paste0(label.col, 1))
+    
+    .populate.pairwise.matrix.with.statistic(pairwise.matrix, IBD, label.col, statistic)
+  }
+
+
+save.pairwise.matrix <- function(pairwise.matrix, file) {
+  write.table(pairwise.matrix,
+              file,
+              quote = FALSE,
+              sep = "\t",
+              na = "")
+}
+
+
+.add.sentinel.to.upper.triangle <- function(pairwise.matrix) {
+  random <- rnorm(1)
+  while (any(pairwise.matrix == random, na.rm = TRUE))
+    random <- rnorm(1)
+  
+  pairwise.matrix[upper.tri(pairwise.matrix)] <- random
+  
+  pairwise.matrix
+}
+
+
+.transform.pairwise.matrix.to.table <- function(pairwise.matrix) {
+  pairwise.matrix <- .add.sentinel.to.upper.triangle(pairwise.matrix)
+  
+  randoms <- pairwise.matrix[upper.tri(pairwise.matrix)]
+  random <- randoms[1]
+  if (any(is.na(randoms)) ||
+      !all(randoms == random))
+    warning("Matrix upper triangle does not contain sentinels.")
+  
+  pairwise.table <- as.data.frame(as.table(pairwise.matrix))
+  pairwise.table[!(pairwise.table[, "Freq"] %in% random), ]
+}
+
+
+.concatenate.pairwise.labels <-
+  function(pairwise.table, sep = "-") {
+    labels <-
+      do.call(paste, c(pairwise.table[, c("Var1", "Var2")], sep = sep))
+    as.data.frame(cbind(labels, pairwise.table[, "Freq"]))
+  }
+
+
+calculate.pairwise.table <- function(IBD,
+                                     metadata,
+                                     label.col,
+                                     statistics,
+                                     sample.col = "Sample") {
+  pairwise.tables <- NULL
+  # safeguard against non-vector
+  statistics <- c(statistics)
+  stats <- names(statistics)
+  
+  
+  for (i in seq_along(statistics)) {
+    pairwise.matrix <- calculate.pairwise.matrix(IBD,
+                                                 metadata,
+                                                 label.col,
+                                                 statistics[[i]],
+                                                 sample.col = sample.col)
+    pairwise.table <-
+      .transform.pairwise.matrix.to.table(pairwise.matrix)
+    
+    pairwise.table <- .concatenate.pairwise.labels(pairwise.table)
+    if (is.null(stats)) {
+      names(pairwise.table) <- c(label.col, LETTERS[i])
+    } else {
+      names(pairwise.table) <- c(label.col, stats[i])
+    }
+    
+    if (is.null(pairwise.tables)) {
+      pairwise.tables <- pairwise.table
+      next
+    }
+    
+    pairwise.tables <-
+      merge(pairwise.tables,
+            pairwise.table,
+            by = label.col,
+            all = TRUE)
+  }
+  
+  pairwise.tables
+}
+
+
+save.pairwise.table <- function(pairwise.table, file) {
+  write.table(
+    pairwise.table,
+    file,
+    quote = FALSE,
+    sep = "\t",
+    row.names = FALSE
+  )
+}
+
+
+statistics <- c(min, function(x)
+  quantile(x, probs = 0.25),
+  median, mean, function(x)
+    quantile(x, probs = 0.75), max)
+
+names(statistics) <- c("Min.", "1st Qu.", "Median", "Mean",
+                       "3rd Qu.", "Max.")
+
+
+# Pk Clusters in Malaysia
+
+## stat medians
+metadata <- read_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk.csv", col_names = FALSE) %>% 
+        select(1, 6, 7) %>%
+        rename(Sample = X1) %>%
+        rename(Location = X6) %>%
+        rename(Cluster = X7) %>% 
+        as.data.frame()
+
+### add a priori classfication of Sabah clusters based on trees
+
+metadata <- metadata %>% # mutate it below to add the clusters based on IBS plots
+    mutate(Cluster = ifelse(grepl("PK_SB_DNA_011", Sample) | # does the ID match any of these
+                                grepl("PK_SB_DNA_091", Sample) | 
+                                grepl("PK_SB_DNA_043", Sample) |
+                                grepl("PK_SB_DNA_016", Sample) |  
+                                grepl("PK_SB_DNA_092", Sample) | 
+                                grepl("PK_SB_DNA_030", Sample) | 
+                                grepl("PK_SB_DNA_093", Sample) | 
+                                grepl("PK_SB_DNA_042", Sample) | 
+                                grepl("PK_SB_DNA_063", Sample), "Mn", .$Cluster)) %>% # if not, just use values from X7 - clusters and Sabah
+    mutate(Cluster = ifelse(Cluster == "Sabah", "Mf", .$Cluster)) # if its the remaining Sabah samples, make them Mn, else keep them the same
+
+Pk.IBD <- read_table("Pk.hmm_fract.txt")
+Pk.pairwise.median <- calculate.pairwise.matrix(Pk.IBD, metadata, "Cluster", median)
+save.pairwise.matrix(Pk.pairwise.median, "Pk_pairwise_IBD_median.txt")
+
+## stat summary
+Pk.pairwise.summary <- calculate.pairwise.table(Pk.IBD, metadata, "Cluster", statistics)
+save.pairwise.table(Pk.pairwise.summary, "Pk_pairwise_summary.txt")
+```
+
+## Plot pairwise statistics from hmmIBD output (thanks Edwin!)
+
+File: hmmIBD_plots.R 
+
+This code was again provided by Edwin.
+
+```{R,eval=F}
+library(igraph)
+
+.reorder.metadata <-
+  function(IBD, metadata, sample.col = "Sample") {
+    samples <- unique(c(IBD[, "sample1"], IBD[, "sample2"]))
+    sample.order <- match(metadata[, sample.col], samples)
+    actual.length <- length(na.omit(sample.order))
+    
+    metadata <- metadata[order(sample.order), ]
+    metadata[1:actual.length, ]
+  }
+
+
+.get.labels <-
+  function(metadata,
+           label.col,
+           label.palette = NULL) {
+    labels <- metadata[, label.col]
+    labels[is.na(labels)] <- NaN
+    
+    labels <- factor(labels)
+    
+    if (is.null(label.palette)) {
+      labels
+    } else {
+      factor(labels, levels = names(label.palette))
+    }
+  }
+
+
+.generate.label.palette <-
+  function(labels, palette = "Tableau 10") {
+    label.names <- levels(labels)
+    label.palette <-
+      palette.colors(length(label.names), palette = "Tableau 10")
+    names(label.palette) <- label.names
+    
+    label.palette
+  }
+
+
+.generate.label.colours <-
+  function(labels, label.palette)
+    label.palette[labels]
+
+
+.create.edgelist <-
+  function(IBD)
+    IBD[, c("sample1", "sample2", "fract_sites_IBD")]
+
+
+.create.vertices <-
+  function(metadata, sample.col = "Sample") {
+    vertices <- data.frame(metadata[, sample.col])
+    names(vertices) <- sample.col
+    
+    vertices
+  }
+
+
+.internal.plot.IBD <- function(IBD.graph,
+                               unlabelled = TRUE,
+                               coords = layout_nicely,
+                               percent.cutoff = NA) {
+  if (unlabelled) {
+    plot(
+      IBD.graph,
+      layout = coords,
+      vertex.size = 4,
+      vertex.label = NA,
+      main = paste0("IBD >=", percent.cutoff, "%")
+    )
+  } else {
+    plot(
+      IBD.graph,
+      layout = coords,
+      vertex.size = 4,
+      vertex.label.cex = 0.3,
+      main = paste0("IBD >=", percent.cutoff, "%")
+    )
+  }
+}
+
+
+.plot.IBD <-
+  function(file,
+           IBD.graph,
+           unlabelled = TRUE,
+           label.palette = NULL,
+           labels = NULL,
+           legend.title = NA,
+           coords = layout_nicely,
+           percent.cutoff = NA) {
+    pdf(file)
+    par(mar = rep.int(1, 4) + 0.1)
+    
+    .internal.plot.IBD(
+      IBD.graph,
+      unlabelled = unlabelled,
+      coords = layout_nicely,
+      percent.cutoff = percent.cutoff
+    )
+    
+    if (!is.null(label.palette))
+      legend(
+        "bottomleft",
+        legend = levels(labels),
+        fill = label.palette,
+        title = legend.title,
+        cex = 0.6
+      )
+    
+    dev.off()
+  }
+
+
+.plot.IBDs <- function(prefix,
+                       IBD.graph,
+                       label.palette,
+                       labels,
+                       legend.title,
+                       coords,
+                       percent.cutoff) {
+  labelled.file <-
+    paste0(prefix, "_labelled_IBD", percent.cutoff, ".pdf")
+  .plot.IBD(
+    labelled.file,
+    IBD.graph,
+    unlabelled = FALSE,
+    label.palette = label.palette,
+    labels = labels,
+    legend.title = legend.title,
+    coords = coords,
+    percent.cutoff = percent.cutoff
+  )
+  
+  unlabelled.file <-
+    paste0(prefix, "_unlabelled_IBD", percent.cutoff, ".pdf")
+  .plot.IBD(
+    unlabelled.file,
+    IBD.graph,
+    unlabelled = TRUE,
+    label.palette = label.palette,
+    labels = labels,
+    legend.title = legend.title,
+    coords = coords,
+    percent.cutoff = percent.cutoff
+  )
+}
+
+
+plot.IBD <- function(file,
+                     IBD.cutoffs,
+                     IBD,
+                     metadata,
+                     label.col,
+                     unlabelled = TRUE,
+                     label.palette = NULL,
+                     legend.title = NA,
+                     sample.col = "Sample") {
+  edgelist <- .create.edgelist(IBD)
+  
+  metadata <- .reorder.metadata(IBD, metadata)
+  
+  vertices <- .create.vertices(metadata)
+  
+  sqrt.n.plots <- ceiling(sqrt(length(IBD.cutoffs)))
+  size <- 7 * sqrt.n.plots
+  
+  legend.position <- sqrt.n.plots ^ 2 - sqrt.n.plots + 1
+  legend.plot <- FALSE
+  
+  pdf(file, width = size, height = size)
+  par(mar = rep.int(1, 4) + 0.1,
+      mfrow = c(sqrt.n.plots, sqrt.n.plots))
+  
+  if (is.null(label.palette)) {
+    labels <- .get.labels(metadata, label.col)
+    label.palette <- .generate.label.palette(labels)
+    
+  } else {
+    labels <-
+      .get.labels(metadata, label.col, label.palette = label.palette)
+  }
+  
+  label.colours <-
+    .generate.label.colours(labels, label.palette)
+  
+  for (i in seq_along(IBD.cutoffs)) {
+    d <- edgelist[edgelist[, "fract_sites_IBD"] >= IBD.cutoffs[i], ]
+    
+    IBD.graph <-
+      graph_from_data_frame(d, directed = FALSE, vertices = vertices)
+    
+    coords <- layout_(IBD.graph, nicely())
+    percent.cutoff <- round(IBD.cutoffs[i] * 100, digits = 2)
+    
+    IBD.graph <-
+      set_vertex_attr(IBD.graph, "color", value = label.colours)
+    
+    .internal.plot.IBD(IBD.graph,
+                       unlabelled,
+                       coords,
+                       percent.cutoff)
+    
+    if (i == legend.position) {
+      legend(
+        "bottomleft",
+        legend = levels(labels),
+        fill = label.palette,
+        title = legend.title,
+        cex = 0.6
+      )
+      
+      legend.plot <- TRUE
+    }
+  }
+  
+  if (!legend.plot) {
+    while (i != legend.position) {
+      plot.new()
+      i <- i + 1
+    }
+    
+    legend(
+      "bottomleft",
+      legend = levels(labels),
+      fill = label.palette,
+      title = legend.title,
+      cex = 0.6
+    )
+  }
+  
+  dev.off()
+}
+
+
+plot.IBDs <- function(prefixes,
+                      IBD.cutoffs,
+                      IBD,
+                      metadata,
+                      label.cols,
+                      label.palettes = NULL,
+                      legend.titles = NA,
+                      sample.col = "Sample") {
+  edgelist <- .create.edgelist(IBD)
+  
+  metadata <- .reorder.metadata(IBD, metadata)
+  
+  vertices <- .create.vertices(metadata)
+  
+  for (IBD.cutoff in IBD.cutoffs) {
+    d <- edgelist[edgelist[, "fract_sites_IBD"] >= IBD.cutoff, ]
+    
+    IBD.graph <-
+      graph_from_data_frame(d, directed = FALSE, vertices = vertices)
+    
+    coords <- layout_(IBD.graph, nicely())
+    percent.cutoff <- round(IBD.cutoff * 100, digits = 2)
+    
+    for (label.col in label.cols) {
+      label.palette <- label.palettes[[label.col]]
+      
+      if (is.null(label.palette)) {
+        labels <- .get.labels(metadata, label.col)
+        label.palette <- .generate.label.palette(labels)
+        
+      } else {
+        labels <-
+          .get.labels(metadata, label.col, label.palette = label.palette)
+      }
+      
+      label.colours <-
+        .generate.label.colours(labels, label.palette)
+      
+      IBD.graph <-
+        set_vertex_attr(IBD.graph, "color", value = label.colours)
+      
+      legend.title <- legend.titles[[label.col]]
+      
+      prefix <- prefixes[[label.col]]
+      
+      .plot.IBDs(prefix,
+                 IBD.graph,
+                 label.palette,
+                 labels,
+                 legend.title,
+                 coords,
+                 percent.cutoff)
+    }
+  }
+}
+
+
+read.pairwise.matrix <- function(file) {
+  as.matrix(read.delim(file, check.names = FALSE))
+}
+
+
+IBD.cutoffs <- c(0.125, 0.25, 0.5)
+
+# include +-5% IBD
+relaxed.IBD.cutoffs <- c(IBD.cutoffs, 1)
+relaxed.IBD.cutoffs <- relaxed.IBD.cutoffs * 0.95
+
+
+## Pk
+library(igraph)
+library(tidyverse)
+library(MetamapsDB)
+
+Pk.IBD.file <- "Pk.hmm_fract.txt"
+Pk.IBD <- read.delim(Pk.IBD.file)
+
+metadata <- read_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk.csv", col_names = FALSE) %>% 
+        select(1, 6, 7) %>%
+        rename(Sample = X1) %>%
+        rename(Location = X6) %>%
+        rename(Cluster = X7) %>% 
+        as.data.frame() 
+
+metadata <- metadata %>% 
+    mutate(Cluster = ifelse(grepl("PK_SB_DNA_011", Sample) | # does the ID match any of these
+                                grepl("PK_SB_DNA_091", Sample) | 
+                                grepl("PK_SB_DNA_043", Sample) |
+                                grepl("PK_SB_DNA_016", Sample) |  
+                                grepl("PK_SB_DNA_092", Sample) | 
+                                grepl("PK_SB_DNA_030", Sample) | 
+                                grepl("PK_SB_DNA_093", Sample) | 
+                                grepl("PK_SB_DNA_042", Sample) | 
+                                grepl("PK_SB_DNA_063", Sample), "Mn", .$Cluster)) %>% # if not, just use values from X7 - clusters and Sabah
+    mutate(Cluster = ifelse(Cluster == "Sabah", "Mf", .$Cluster)) # if its the remaining Sabah samples, make them Mn, else keep them the same
+
+
+# Base plots
+Pk.label.cols <- c("Cluster")
+Pk.legend.titles <- list("Cluster" = "Cluster")
+Pk.prefixes <- metadata %>% 
+  select(Cluster) %>%
+  unique() %>% 
+  as.list()
+
+plot.IBDs(
+  Pk.prefixes,
+  IBD.cutoffs,
+  Pk.IBD,
+  metadata,
+  Pk.label.cols,
+  legend.titles = Pk.legend.titles
+)
+
+Pk.median.file <- "Pk_pairwise_IBD_median.txt"
+Pk.median <- read.pairwise.matrix(Pk.median.file)
+
+Pk.IBD.cutoffs <- c(fivenum(Pk.median), relaxed.IBD.cutoffs)
+
+IBDs.plot.file <- "Pk_major_IBDs.pdf"
+
+plot.IBD(
+  IBDs.plot.file,
+  Pk.IBD.cutoffs,
+  Pk.IBD,
+  metadata,
+  "Cluster",
+  legend.title = "Cluster"
+)
+```
+
+#########################################################################################################
+
+
+# Introgression and clustering using ADMIXTURE and hmmIBD
+
+ADMIXTURE is a clustering software that infers populations and ancestries. It requires unlinked SNPs in PLINK format, specifically the .bed (binary allelic genotype table) file as input. Here we used the "cleaned.bim" file previously created (filtered for MAF and GM).
+
+**NB** ADMIXTURE does not accept chromosome names that are not human chromosomes and so make sure the first column is 0.
+
+Steps:
+    - identify the best K value = the number of ancestral populations you believe to be present. From the previous analyses it looks like there is 3 (Mn, Mf and Peninsular), however, you can run several and then compare.
+    - collect the cv errors 
+    - plot the results in R
+
+```{bash,eval=F}
+export PATH=$PATH:/g/data/pq84/bin/admixture_linux-1.3.0/
+cd ADMIXTURE
+
+for i in {3..5}
+    do admixture --cv /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/cleaned.bed $i > log${i}.out
+done
+
+awk '/CV/ {print $3,$4}' *out | cut -c 4,7-20 > Pk.cv.error
+```
+
+**NB** I had some issues getting a couple fo the packages up and running on Gadi and so I ran this on my local.
+
+```{R,eval=F} 
+# Packages
+library(maps)
+library(sf)
+library(rnaturalearth)
+library(tidyverse)
+library(janitor)
+
+# Bar plot of ADMIXTURE output
+
+admixture_table <- read.table("data/ADMIXTURE/cleaned.3.Q") %>% 
+  cbind(
+    read_csv("data/metadata/cluster_metadata_popgen.csv")
+  )
+
+admixture_table %>% 
+  pivot_longer(1:3, names_to = "Ancestry", values_to = "Proportion") %>% 
+  mutate(Cluster = ifelse(Ancestry == "V1", "Mf",
+                          ifelse(Ancestry == "V2", "Peninsular", "Mn"))) %>% 
+  mutate(Ancestry = Proportion) %>% 
+  ggplot(aes(x = Sample, y = Ancestry, fill = Cluster)) +
+  geom_col() +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  scale_fill_manual(values = c("#440154FF", "#39568CFF", "#73D055FF"))
+
+# Digging into mixed samples
+
+admixture_table %>% 
+  filter(V1 > 0.005 & V2 > 0.005 |
+           V1 > 0.005 & V3 > 0.005 |
+           V2 > 0.005 & V3 > 0.005) %>% 
+  pivot_longer(1:3, names_to = "Ancestry", values_to = "Proportion") %>% 
+  mutate(Sample = str_remove(Sample, "_DKD.*")) %>%
+  mutate(Cluster = ifelse(Ancestry == "V1", "Mf",
+                          ifelse(Ancestry == "V2", "Peninsular", "Mn"))) %>% 
+  mutate(Ancestry = Proportion) %>% 
+  ggplot(aes(x = Sample, y = Ancestry, fill = Cluster)) +
+  geom_col() +
+  theme(axis.text.x = element_text(angle = 90)) +
+  scale_fill_manual(values = c("#440154FF", "#39568CFF", "#73D055FF"))
+
+# What districts are the mixed samples from?
+
+admixture_table %>% 
+  filter(V1 > 0.005 & V2 > 0.005 |
+           V1 > 0.005 & V3 > 0.005 |
+           V2 > 0.005 & V3 > 0.005) %>% 
+  mutate(Sample = str_remove(Sample, "_DK.*")) %>% 
+  select(Sample) %>% 
+  left_join(
+    popgen_metadata %>% 
+      select(Sample, district) %>% 
+      filter(grepl("PK", Sample)) %>% 
+      rbind(
+        read_csv("data/metadata/Pk_clusters_metadata.csv") %>% 
+          select(Sample, area) %>% 
+          rename(district = area)
+      )
+  )
+
+# Map with distribution of samples and clusters
+
+map_data <- popgen_metadata %>% 
+  select(Sample, district, Cluster) %>% 
+  rename(Location = district) %>% 
+  rbind(
+    read_csv("data/metadata/cluster_metadata_popgen.csv") %>% 
+      filter(!grepl("PK",Sample)) %>% 
+      select(Sample, Location, Cluster)
+  ) %>% 
+  mutate(Location = ifelse(Location == "Sungai_Siuit", "Sungai_Siput", .$Location))
+
+#map_data %>%  # used this to get long an lat
+ # select(Location) %>% 
+  #unique() %>% 
+#write_csv("data/metadata/map_data.csv")
+  
+map_data <- map_data %>% 
+  left_join(
+    read_csv("data/metadata/map_data.csv")
+  ) %>% 
+  na.omit() %>% 
+  arrange(Location) %>% 
+  left_join(
+    admixture_table %>% 
+      select(1:4) %>% 
+      mutate(Mixed = ifelse(V1 > 0.005 & V2 > 0.005 | V1 > 0.005 & V3 > 0.005 | V2 > 0.005 & V3 > 0.005, "Yes", "No")) %>% 
+      mutate(Sample = str_remove(Sample, "_DK.*")) %>% 
+      select(Sample, Mixed)
+  ) 
+
+world <- ne_countries(scale = "medium", returnclass = "sf", country = c("Malaysia", "Indonesia"))
+
+sf_use_s2(FALSE) # Spherical geometry (s2) switched off
+
+ggplot() +
+  geom_sf(data = world, col="transparent") +
+  scale_x_continuous(limits = c(95, 120)) +
+  coord_sf(expand = FALSE) +
+  xlab("Longitude") + ylab("Latitude") +
+  theme_linedraw() +
+  theme_dark() +
+  theme(plot.title = element_text(size=15, hjust = 0.5), plot.margin = unit(c(1,1,1,1), "cm")) +
+  geom_jitter(data = map_data, aes(x = Long, y = Lat, colour = Cluster, shape = Mixed), size = 3, width = 0.4, height = 0.4) +
+  scale_shape_manual(values = c(3, 17)) 
+
+# Locations of different Sabah samples
+##Do the clusters come from specific districts?
+
+Sabah_map_data <- map_data %>% 
+  filter(Long > 110 & Lat > 3.5)
+
+ggplot() +
+  geom_sf(data = world, col="transparent") +
+  scale_x_continuous(limits = c(115, 120)) + 
+  scale_y_continuous(limits = c(4.5, 7)) +
+  coord_sf(expand = FALSE) +
+  xlab("Longitude") + ylab("Latitude") +
+  theme_linedraw() +
+  theme_dark() +
+  theme(plot.title = element_text(size = 15, hjust = 0.5), plot.margin = unit(c(1,1,1,1), "cm")) +
+  geom_jitter(data = Sabah_map_data, aes(x = Long, y = Lat, colour = Cluster, shape = Mixed), size = 4, width = 0.05, height = 0.05) +
+  scale_shape_manual(values = c(3, 17))
+
+
+# Combining information on genetic and geographic clusters
+
+admixture_table %>% 
+  mutate(Sample = str_remove(Sample, "_DK.*")) %>% 
+  left_join(
+    map_data %>% 
+      select(Sample, Long, Lat)
+  ) %>% 
+  mutate(Geo_cluster = ifelse(Long < 105, "Peninsular", 
+                               ifelse(Long > 105 & Long < 112.2, "Betong", 
+                                      ifelse(Long > 112.2 & Long < 115, "Kapit", "Sabah")))) %>% 
+  mutate(Geo_cluster = ifelse(is.na(Geo_cluster), "Peninsular", .$Geo_cluster)) %>% 
+  pivot_longer(1:3, names_to = "Ancestry", values_to = "Proportion") %>% 
+  mutate(Cluster = ifelse(Ancestry == "V1", "Mf",
+                          ifelse(Ancestry == "V2", "Peninsular", "Mn"))) %>% 
+  mutate(Ancestry = Proportion) %>% 
+  arrange(Geo_cluster) %>% 
+  ggplot(aes(x = Sample, y = Ancestry, fill = Cluster)) +
+    geom_col() +
+    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+    scale_fill_manual(values = c("#440154FF", "#39568CFF", "#73D055FF")) +
+    facet_grid(~Geo_cluster, scales = "free", space = "free")
+
+
+# IBD sites in sample 32 compared to Peninsular samples 
+
+## Dot and line plot using hmmIBD output
+
+read.table("data/hmmIBD/PK_SB_DNA_032.hmm.txt") %>% 
+  mutate(different = as.numeric(different)) %>%
+  left_join(
+    admixture_table %>% 
+      rename(sample1 = Sample) %>% 
+      select(4:6)
+      ) %>%
+  mutate(sample1 = paste(sample1, 1:n(), sep = "_")) %>% 
+  pivot_longer(cols = start:end, names_to = "pos", values_to = "pos_value") %>% 
+  filter(Cluster == "Peninsular") %>% 
+  arrange(sample1) %>% 
+  filter(chr == 3 | chr == 9) %>% 
+  mutate(chr = paste0("Chromosome ", chr)) %>% 
+  mutate(IBD = as.factor(different)) %>% 
+  ggplot(aes(x = pos_value, y = IBD, colour = IBD, group = sample1)) +
+  geom_point() +
+  geom_line() +
+  theme(legend.position = "none") +
+  facet_grid(~chr, scales = "free", space = "free") +
+  scale_colour_manual(values = c( "#73D055FF", "#440154FF")) +
+  xlab("Position in chromosome")
+
+# Table with IBD sample info
+
+read.table("data/hmmIBD/PK_SB_DNA_032.hmm.txt") %>% 
+  mutate(different = as.numeric(different)) %>%
+  left_join(
+    admixture_table %>% 
+      rename(sample1 = Sample) %>% 
+      select(4:6)
+      ) %>% 
+  mutate(sample1 = paste(sample1, 1:n(), sep = "_")) %>% 
+  filter(different == 0 & Cluster == "Peninsular") %>% 
+  filter(chr == 3 | chr == 9)
+
+## Heatmap of 'genotype file' checking for possible IBD
+
+	
+IBD_heatmap_data <- read_tsv("data/hmmIBD/hmmIBD_temp.tsv") %>% # The input file is a chromsome-specific subset of the genotype file created for input into hmmIBD.
+  pivot_longer(3:ncol(.), names_to = "Sample", values_to = "Genotype") %>% 
+  left_join(
+    admixture_table %>% 
+      select(4:6)
+  ) %>% 
+  filter(grepl("PK_SB_DNA_032", Sample) | Cluster == "Peninsular") 
+
+
+IBD_heatmap_annotation <- admixture_table %>% 
+  select(Sample, Cluster) %>% 
+  column_to_rownames("Sample")
+
+IBD_heatmap_data %>% 
+  filter(POS > 657462 & POS < 668818) %>% 
+  select(2:4) %>% 
+  pivot_wider(names_from = "POS", values_from = "Genotype") %>% 
+  column_to_rownames("Sample") %>% 
+  pheatmap(show_rownames = T, show_colnames = F, annotation_row = IBD_heatmap_annotation, cluster_cols = F)
+
+IBD_heatmap_data <- read_tsv("data/hmmIBD/hmmIBD_temp2.tsv") %>% 
+  pivot_longer(3:ncol(.), names_to = "Sample", values_to = "Genotype") %>% 
+  left_join(
+    admixture_table %>% 
+      select(4:6)
+  ) %>% 
+  filter(grepl("PK_SB_DNA_032", Sample) | grepl("ERR3374033", Sample) | grepl("ERR3374037", Sample)
+         | grepl("ERR3374040", Sample) | grepl("ERR3374051", Sample) | grepl("ERR3374057", Sample)) 
+
+IBD_heatmap_data %>% 
+  filter(POS > 1848114 & POS < 1850009) %>% 
+  select(2:4) %>% 
+  pivot_wider(names_from = "POS", values_from = "Genotype") %>% 
+  column_to_rownames("Sample") %>% 
+  pheatmap(show_rownames = T, show_colnames = F, annotation_row = IBD_heatmap_annotation, cluster_cols = F)
+
+```
+
+#########################################################################################################
+
+# hmmIBD within genomic clusters (Mf & Mn) and using geographic clusters - Kapit-Betong vs Sabah
+
+Modify exclude text file for hmmIBD input to select specific genomic clusters.
+
+```{bash.eval=F}
+mkdir /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD_geo_clusters
+cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD_geo_clusters
+cp /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD/exclude.txt exclude.txt
+```
+
+**NB Geo_Clusters.csv was created on my local and contains information Longitude, Latitude and a simplified version of geographic clusters (Peninsular, Sabah, Kapit, Betong and Sarikei)**
+
+```{R,eval=F}
+library(tidyverse)
+
+metadata <- read_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk.csv", col_names = FALSE) %>% 
+        select(1, 6, 7) %>%
+        rename(Sample = X1) %>%
+        rename(Location = X6) %>%
+        rename(Cluster = X7) %>% 
+        as.data.frame() 
+
+metadata <- metadata %>% 
+    mutate(Cluster = ifelse(grepl("PK_SB_DNA_011", Sample) | # does the ID match any of these
+                                grepl("PK_SB_DNA_091", Sample) | 
+                                grepl("PK_SB_DNA_043", Sample) |
+                                grepl("PK_SB_DNA_016", Sample) |  
+                                grepl("PK_SB_DNA_092", Sample) | 
+                                grepl("PK_SB_DNA_030", Sample) | 
+                                grepl("PK_SB_DNA_093", Sample) | 
+                                grepl("PK_SB_DNA_042", Sample) | 
+                                grepl("PK_SB_DNA_063", Sample), "Mn", .$Cluster)) %>% # if not, just use values from X7 - clusters and Sabah
+    mutate(Cluster = ifelse(Cluster == "Sabah", "Mf", .$Cluster)) # if its the remaining Sabah samples, make them Mn, else keep them the same
+
+metadata %>% 
+  filter(Cluster != "Mf") %>%
+  select(Sample) %>%
+  rbind(
+    read_table("exclude.txt", col_names = "Sample")
+    ) %>%
+  unique() %>%
+  write_tsv("Mf_exclude.txt", col_names = F)
+
+metadata %>% 
+  filter(Cluster != "Mn") %>%
+  select(Sample) %>%
+    rbind(
+    read_table("exclude.txt", col_names = "Sample")
+    ) %>%
+  unique() %>%
+  write_tsv("Mn_exclude.txt", col_names = F)
+````
+
+```{bash.eval=F}
+#!/bin/bash
+#PBS -P pq84
+#PBS -q normalbw 
+#PBS -N hmmIBD_geo
+#PBS -j oe
+#PBS -m ae
+#PBS -l walltime=24:00:00,mem=40GB,ncpus=5
+#PBS -l storage=gdata/pq84+scratch/pq84
+#PBS -M jacob.westaway@menzies.edu.au
+
+echo "---------------------------------------"
+echo "PBS: Job identifier is $PBS_JOBID"
+echo "PBS: Job name is $PBS_JOBNAME"
+
+echo "---------------------------------------"
+echo "Set working env"
+cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD_geo_clusters
+export PATH=$PATH:/g/data/pq84/bin/hmmIBD/   
+module load R/4.1.0 
+export R_LIBS_USER="/g/data/pq84/R"
+
+echo "---------------------------------------"
+echo "Run hmmIBD on Mf"
+hmmIBD -i /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD/hmmIBD.tsv -b Mf_exclude.txt -o Pk_Mf
+
+echo "---------------------------------------"
+echo "Run hmmIBD on Mn"
+hmmIBD -i /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD/hmmIBD.tsv -b Mn_exclude.txt -o Pk_Mn
+
+echo "---------------------------------------"
+echo "Finished"
+```
+
+**The same code/scripts used above (hmmIBD_stats.R & hmmIBD_plots.R) were used to generate outputs for the hmmIBD data above.**
+
+
+#########################################################################################################
+
+# Differences between the Betong-Kapit and Sabah clusters within the Mf and Mn genomic clusters
+
+The IBD analysis done above suggests that Kapit and Betong can be grouped together and comapred to Sabah (within clusters) to identify genomic regions that are both driving the differences between the geogrpahic clusters (Fst) and that are under different selection pressures (rehh - iHS etc.).
+
+
+## Mf
+
+### Here we calculate the distances based on a subset of the data by only including Mf samples.
+
+```{bash,eval=F}
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/Mf_Geo/sample_clusters.R
+sed 's/,/ /g' sample_clusters.csv > sample_clusters.txt
+rm -f sample_clusters.csv
+cat sample_clusters.txt | awk '{print $1 " " $2 " 0 0 0 " $3}' > include_samples.txt
+
+plink --bfile cleaned --keep include_samples.txt --cluster --mds-plot 10 --out Pk
+plink --bfile cleaned --keep include_samples.txt --pca --out Pk
+plink --bfile cleaned --keep include_samples.txt --distance square --out Pk
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/Mf_Geo/ordination_plots.R
+```
+
+### Fst statistic - within Mf
+
+First create a file that contains the clusters you want used for the Fst. You can ammend the Pk.fam file (or metadata), but the file needs to be structured in PLINKs weird FID-IID-Cluster format.
+
+Steps:
+    - Apply filter (as done previously)
+    - Attach metadata to fam file (as done previously)
+    - Define clusters using metadata
+    - Calculate and plot Fst for a-priori clusters (sample_clusters.txt)
+
+```{bash,eval=F}
+plink --file Pk --maf 0.05 --geno 0.25 --mind 0.25 --make-bed --out cleaned
+sed 's/ /,/g' cleaned.fam > Pk.csv
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/pheno_to_plink_fam.R
+sed 's/,/ /g' Pk.csv > Pk.fam
+
+plink --bfile cleaned \
+  --within sample_clusters.txt \
+  --keep include_samples.txt \
+  --fst \
+  --allow-no-sex \
+  --out Pk
+
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/Mf_Geo/Fst_plot.R
+```
+
+### rehh - within Mf
+
+# Variant selection - between geo-clsuters within Mf
+
+**Need to ammend the sn and xl line manually based on outputs of "cat"**
+
+```{bash}
+grep '##contig=<ID=ordered' PK_consensus_filtered_pass.vcf | sed 's/##contig=<ID=//g' | sed 's/,.*//g' > rehh_geo/chromosome.txt
+
+cat sample_clusters.txt | awk '{print "-sn " $1}' | tr '\n' ' '
+
+for i in $(cat rehh/chromosome.txt)
+    do 
+        java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+        -T SelectVariants \
+        -R $FASTA/strain_A1_H.1.Icor.fasta \
+        -V PK_consensus_filtered_pass.vcf  \
+        -L $i \
+        -sn ERR274221 -sn ERR274222 -sn ERR366426 -sn ERR985372 -sn ERR985373 -sn ERR985374 -sn ERR985375 -sn ERR985376 -sn ERR985377 -sn ERR985378 -sn ERR985379 -sn ERR985380 -sn ERR985381 -sn ERR985382 -sn ERR985383 -sn ERR985384 -sn ERR985385 -sn ERR985386 -sn ERR985387 -sn ERR985388 -sn ERR985389 -sn ERR985390 -sn ERR985391 -sn ERR985392 -sn ERR985393 -sn ERR985394 -sn ERR985395 -sn ERR985396 -sn ERR985397 -sn ERR985398 -sn ERR985399 -sn ERR985400 -sn ERR985401 -sn ERR985402 -sn ERR985403 -sn ERR985404 -sn ERR985405 -sn ERR985406 -sn ERR985407 -sn ERR985408 -sn ERR985409 -sn PK_SB_DNA_001_DKDL210002130-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_002_DKDL210002131-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_003_DKDL210002132-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_005_DKDL210002134-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_006_DKDL210002135-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_008_DKDL210002137-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_009_DKDL210002138-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_010_DKDL210002139-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_013_DKDL210002142-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_014_DKDL210002143-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_015_DKDL210002144-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_021_DKDL210002150-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_023_DKDL210002152-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_029_DKDL210002158-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_031_DKDL210002160-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_032_DKDL210002161-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_034_DKDL210002163-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_035_DKDL210002164-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_036_DKDL210002165-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_038_DKDL210002167-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_039_DKDL210002168-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_040_DKDL210002169-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_044_DKDL210002173-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_045_DKDL210002174-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_046_DKDL210002175-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_047_DKDL210002176-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_048_DKDL210002177-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_049_DKDL210002178-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_051_DKDL210002180-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_052_DKDL210002181-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_053_DKDL210002182-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_054_DKDL210002183-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_055_DKDL210002184-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_057_DKDL210002186-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_067_DKDL210002196-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_068_DKDL210002197-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_069_DKDL210002198-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_070_DKDL210002199-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_072_DKDL210002201-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_073_DKDL210002202-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_074_DKDL210002203-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_077_DKDL210002206-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_081_DKDL210002210-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_082_DKDL210002211-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_083_DKDL210002212-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_086_DKDL210002215-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_087_DKDL210002216-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_088_DKDL210002217-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_089_DKDL210002218-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_090_DKDL210002219-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_094_DKDL210002223-1a_HWHGKDSXY_L4 \
+        -o rehh_geo/${i}.vcf.gz
+    done 
+
+cat sample_clusters.txt | grep 'Sabah' | awk '{print "-sn " $1}' | tr '\n' ' '
+cat sample_clusters.txt | grep 'Sabah' | awk '{print "-xl_sn " $1}' | tr '\n' ' '
+
+cd rehh_geo
+ls *vcf.gz > vcf_list.txt
+
+for i in $(cat vcf_list.txt)
+    do  
+        java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+        -T SelectVariants \
+        -R $FASTA/strain_A1_H.1.Icor.fasta \
+        -V $i \
+        -sn PK_SB_DNA_001_DKDL210002130-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_002_DKDL210002131-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_003_DKDL210002132-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_005_DKDL210002134-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_006_DKDL210002135-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_008_DKDL210002137-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_009_DKDL210002138-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_010_DKDL210002139-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_013_DKDL210002142-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_014_DKDL210002143-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_015_DKDL210002144-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_021_DKDL210002150-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_023_DKDL210002152-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_029_DKDL210002158-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_031_DKDL210002160-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_032_DKDL210002161-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_034_DKDL210002163-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_035_DKDL210002164-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_036_DKDL210002165-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_038_DKDL210002167-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_039_DKDL210002168-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_040_DKDL210002169-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_044_DKDL210002173-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_045_DKDL210002174-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_046_DKDL210002175-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_047_DKDL210002176-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_048_DKDL210002177-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_049_DKDL210002178-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_051_DKDL210002180-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_052_DKDL210002181-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_053_DKDL210002182-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_054_DKDL210002183-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_055_DKDL210002184-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_057_DKDL210002186-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_067_DKDL210002196-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_068_DKDL210002197-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_069_DKDL210002198-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_070_DKDL210002199-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_072_DKDL210002201-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_073_DKDL210002202-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_074_DKDL210002203-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_077_DKDL210002206-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_081_DKDL210002210-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_082_DKDL210002211-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_083_DKDL210002212-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_086_DKDL210002215-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_087_DKDL210002216-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_088_DKDL210002217-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_089_DKDL210002218-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_090_DKDL210002219-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_094_DKDL210002223-1a_HWHGKDSXY_L4 \
+        -o ${i%.vcf.gz}_Sabah.vcf.gz
+    done
+
+for i in $(cat vcf_list.txt)
+    do  
+        java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+        -T SelectVariants \
+        -R $FASTA/strain_A1_H.1.Icor.fasta \
+        -V $i \
+        -xl_sn PK_SB_DNA_001_DKDL210002130-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_002_DKDL210002131-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_003_DKDL210002132-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_005_DKDL210002134-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_006_DKDL210002135-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_008_DKDL210002137-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_009_DKDL210002138-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_010_DKDL210002139-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_013_DKDL210002142-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_014_DKDL210002143-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_015_DKDL210002144-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_021_DKDL210002150-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_023_DKDL210002152-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_029_DKDL210002158-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_031_DKDL210002160-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_032_DKDL210002161-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_034_DKDL210002163-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_035_DKDL210002164-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_036_DKDL210002165-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_038_DKDL210002167-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_039_DKDL210002168-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_040_DKDL210002169-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_044_DKDL210002173-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_045_DKDL210002174-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_046_DKDL210002175-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_047_DKDL210002176-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_048_DKDL210002177-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_049_DKDL210002178-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_051_DKDL210002180-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_052_DKDL210002181-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_053_DKDL210002182-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_054_DKDL210002183-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_055_DKDL210002184-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_057_DKDL210002186-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_067_DKDL210002196-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_068_DKDL210002197-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_069_DKDL210002198-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_070_DKDL210002199-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_072_DKDL210002201-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_073_DKDL210002202-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_074_DKDL210002203-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_077_DKDL210002206-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_081_DKDL210002210-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_082_DKDL210002211-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_083_DKDL210002212-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_086_DKDL210002215-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_087_DKDL210002216-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_088_DKDL210002217-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_089_DKDL210002218-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_090_DKDL210002219-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_094_DKDL210002223-1a_HWHGKDSXY_L4 \
+        -o ${i%.vcf.gz}_Betong-Kapit-Sarikei.vcf.gz
+    done
+
+
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/Mf_Geo/rehh.R
+mv *Sabah* Mf_plots/
+mv *Betong* Mf_plots/
+```
+
+
+## Mn
+
+### Here we calculate the distances based on a subset of the data by only including Mn samples.
+
+```{bash,eval=F}
+cdd 1
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/Mn_Geo/sample_clusters.R
+sed 's/,/ /g' sample_clusters.csv > sample_clusters.txt
+rm -f sample_clusters.csv
+cat sample_clusters.txt | awk '{print $1 " " $2 " 0 0 0 " $3}' > include_samples.txt
+
+plink --bfile cleaned --keep include_samples.txt --cluster --mds-plot 10 --out Pk
+plink --bfile cleaned --keep include_samples.txt --pca --out Pk
+plink --bfile cleaned --keep include_samples.txt --distance square --out Pk
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/Mn_Geo/ordination_plots.R
+```
+
+### Fst statistic - within Mn
+
+```{bash,eval=F}
+plink --file Pk --maf 0.05 --geno 0.25 --mind 0.25 --make-bed --out cleaned
+sed 's/ /,/g' cleaned.fam > Pk.csv
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/pheno_to_plink_fam.R
+sed 's/,/ /g' Pk.csv > Pk.fam
+
+plink --bfile cleaned \
+  --within sample_clusters.txt \
+  --keep include_samples.txt \
+  --fst \
+  --allow-no-sex \
+  --out Pk
+
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/Mn_Geo/Fst_plot.R
+```
+
+### rehh - within Mn
+
+# Variant selection - between geo-clsuters within Mn
+
+**Need to ammend the sn and xl line manually based on outputs of "cat"**
+
+```{bash}
+grep '##contig=<ID=ordered' PK_consensus_filtered_pass.vcf | sed 's/##contig=<ID=//g' | sed 's/,.*//g' > rehh_geo/chromosome.txt
+
+cat sample_clusters.txt | awk '{print "-sn " $1}' | tr '\n' ' '
+
+for i in $(cat rehh/chromosome.txt)
+    do 
+        java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+        -T SelectVariants \
+        -R $FASTA/strain_A1_H.1.Icor.fasta \
+        -V PK_consensus_filtered_pass.vcf  \
+        -L $i \
+        -sn ERR2214837 -sn ERR2214838 -sn ERR2214839 -sn ERR2214840 -sn ERR2214841 -sn ERR2214842 -sn ERR2214843 -sn ERR2214844 -sn ERR2214845 -sn ERR2214846 -sn ERR2214847 -sn ERR2214848 -sn ERR2214849 -sn ERR2214850 -sn ERR2214851 -sn ERR2214852 -sn ERR2214853 -sn ERR2214854 -sn ERR2214855 -sn ERR2214856 -sn ERR2214857 -sn ERR274224 -sn ERR274225 -sn ERR366425 -sn ERR985410 -sn ERR985411 -sn ERR985412 -sn ERR985413 -sn ERR985415 -sn ERR985416 -sn ERR985417 -sn ERR985418 -sn ERR985419 -sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 \
+        -o rehh_geo/${i}.vcf.gz
+    done 
+
+cat sample_clusters.txt | grep 'Sabah' | awk '{print "-sn " $1}' | tr '\n' ' '
+cat sample_clusters.txt | grep 'Sabah' | awk '{print "-xl_sn " $1}' | tr '\n' ' '
+
+cd rehh_geo
+ls *vcf.gz > vcf_list.txt
+
+for i in $(cat vcf_list.txt)
+    do  
+        java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+        -T SelectVariants \
+        -R $FASTA/strain_A1_H.1.Icor.fasta \
+        -V $i \
+        -sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 \
+        -o ${i%.vcf.gz}_Sabah.vcf.gz
+    done
+
+for i in $(cat vcf_list.txt)
+    do  
+        java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
+        -T SelectVariants \
+        -R $FASTA/strain_A1_H.1.Icor.fasta \
+        -V $i \
+        -xl_sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 \
+        -o ${i%.vcf.gz}_Betong-Kapit-Sarikei.vcf.gz
+    done
+
+
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/Mf_Geo/rehh.R
+rm *vcf*
+```
+
+
+#########################################################################################################
+
+# hmmIBD with variants subset to those that differ between geographic clusters 
+
+Modify exclude text file for hmmIBD input to select specific genomic clusters.
+
+```{bash.eval=F}
+mkdir /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD_geo_clusters
+cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD_geo_clusters
+cp /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD/exclude.txt exclude.txt
+```
+
+## Need to first subset the hmmIBD input file
+
+```{bash,eval=F}
+cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD/
+```
+
+```{R,eval=F}
+library(tidyverse)
+
+# Metadata
+metadata <- read_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk.csv", col_names = FALSE) %>% 
+        select(1, 6, 7) %>%
+        rename(Sample = X1) %>%
+        rename(Location = X6) %>%
+        rename(Cluster = X7) %>% 
+        as.data.frame() 
+
+metadata <- metadata %>% 
+    mutate(Cluster = ifelse(grepl("PK_SB_DNA_011", Sample) | # does the ID match any of these
+                                grepl("PK_SB_DNA_091", Sample) | 
+                                grepl("PK_SB_DNA_043", Sample) |
+                                grepl("PK_SB_DNA_016", Sample) |  
+                                grepl("PK_SB_DNA_092", Sample) | 
+                                grepl("PK_SB_DNA_030", Sample) | 
+                                grepl("PK_SB_DNA_093", Sample) | 
+                                grepl("PK_SB_DNA_042", Sample) | 
+                                grepl("PK_SB_DNA_063", Sample), "Mn", .$Cluster)) %>% # if not, just use values from X7 - clusters and Sabah
+    mutate(Cluster = ifelse(Cluster == "Sabah", "Mf", .$Cluster))  # if its the remaining Sabah samples, make them Mn, else keep them the same
+
+metadata_Mn <- metadata %>%
+  filter(Cluster == "Mn")
+
+metadata_Mf <- metadata %>%
+  filter(Cluster == "Mf") 
+
+IBD <- read_tsv("hmmIBD.tsv") 
+
+IBD %>% 
+  select(1,2, metadata_Mn$Sample) %>% # Mn
+  filter(!if_all(3:ncol(.), ~ . == -1)) %>%
+  filter(!if_all(3:ncol(.), ~ . == 0)) %>%
+  filter(!if_all(3:ncol(.), ~ . == 1)) %>%
+  filter(!if_all(3:ncol(.), ~ . == 2)) %>%
+  filter(!if_all(3:ncol(.), ~ . == 3)) %>%
+  left_join(
+    IBD %>% 
+      select(1,2, metadata_Mf$Sample) %>% # Mf
+      filter(!if_all(3:ncol(.), ~ . == -1)) %>%
+      filter(!if_all(3:ncol(.), ~ . == 0)) %>%
+      filter(!if_all(3:ncol(.), ~ . == 1)) %>%
+      filter(!if_all(3:ncol(.), ~ . == 2)) %>%
+      filter(!if_all(3:ncol(.), ~ . == 3))
+    ) %>%
+    na.omit() %>%
+    write_tsv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD_geo_clusters/hmmIBD_subset.tsv")
+```
+
+```{bash.eval=F}
+#!/bin/bash
+#PBS -P pq84
+#PBS -q normalbw 
+#PBS -N hmmIBD_geo
+#PBS -j oe
+#PBS -m ae
+#PBS -l walltime=24:00:00,mem=40GB,ncpus=5
+#PBS -l storage=gdata/pq84+scratch/pq84
+#PBS -M jacob.westaway@menzies.edu.au
+
+echo "---------------------------------------"
+echo "PBS: Job identifier is $PBS_JOBID"
+echo "PBS: Job name is $PBS_JOBNAME"
+
+echo "---------------------------------------"
+echo "Set working env"
+cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD_geo_clusters
+export PATH=$PATH:/g/data/pq84/bin/hmmIBD/   
+module load R/4.1.0 
+export R_LIBS_USER="/g/data/pq84/R"
+
+echo "---------------------------------------"
+echo "Run hmmIBD on Mf"
+hmmIBD -i hmmIBD_subset.tsv -b Mf_exclude.txt -o SNP_subset/Pk_Mf
+
+echo "---------------------------------------"
+echo "Run hmmIBD on Mn"
+hmmIBD -i hmmIBD_subset.tsv -b Mn_exclude.txt -o SNP_subset/Pk_Mn
+
+echo "---------------------------------------"
+echo "Finished"
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
