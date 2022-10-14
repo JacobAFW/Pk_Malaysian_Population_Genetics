@@ -132,8 +132,7 @@ NJT_metadata <- read_csv("Pk.csv", col_names = FALSE) %>%
                             grepl("PK_SB_DNA_030", Sample) | 
                             grepl("PK_SB_DNA_093", Sample) | 
                             grepl("PK_SB_DNA_042", Sample) | 
-                            grepl("PK_SB_DNA_063", Sample) |
-                            grepl("PK_SB_DNA_028", Sample), "Mn", .$Cluster)) %>%
+                            grepl("PK_SB_DNA_063", Sample), "Mn", .$Cluster)) %>%
     mutate(Cluster = ifelse(Cluster == "Sabah", "Mf", .$Cluster)) # convert the remaining Sabah samples to Mf
 
 options(ignore.negative.edge=TRUE)
@@ -160,7 +159,7 @@ NJT_tree_plot <- ggtree(NJT_tree, layout="circular", size = 0.5, aes(colour = Cl
    theme(legend.position = "right", 
    legend.title = element_blank(), 
    legend.key = element_blank()) +
-   geom_tiplab(aes(label = District), size = 2) +
+   geom_tiplab(aes(label = Region), size = 2) +
    scale_color_manual(values = c("#440154FF", "#39568CFF"))
     
 ggsave("Sabah_only_Mn_vs_Mf/NJT_tree_labelled_rooted.png", dpi = 600, height = 20, width = 20, limitsize = FALSE, NJT_tree_plot)

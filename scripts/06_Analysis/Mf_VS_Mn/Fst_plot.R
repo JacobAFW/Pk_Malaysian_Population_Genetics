@@ -21,6 +21,6 @@ Fst_plot_window <- Fst_matrix %>%
     ylab("Fst") +
     xlab("Windows (10000)")  +
     scale_color_viridis_d("Chr") +
-    geom_hline(yintercept = 0.5, colour = "#1F968BFF")
+    geom_hline(yintercept = 0.4, colour = "#1F968BFF")
 
 ggsave("Pk_Mn_vs_Mf/Fst_sliding_window_plot.png", dpi = 600, width = 14, Fst_plot_window)

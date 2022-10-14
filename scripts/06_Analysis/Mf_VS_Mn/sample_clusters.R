@@ -9,8 +9,7 @@ read_csv("Pk.csv", col_names = F) %>%
                                 grepl("PK_SB_DNA_030", X1) | 
                                 grepl("PK_SB_DNA_093", X1) | 
                                 grepl("PK_SB_DNA_042", X1) | 
-                                grepl("PK_SB_DNA_063", X1) |
-                                grepl("PK_SB_DNA_028", X1) , "Mn", .$X7)) %>% # if not, just use values from X7 - clusters and Sabah
+                                grepl("PK_SB_DNA_063", X1), "Mn", .$X7)) %>% # if not, just use values from X7 - clusters and Sabah
     mutate(Fst_cluster = ifelse(Fst_cluster == "Sabah", "Mf", .$Fst_cluster)) %>% # if its the remaining Sabah samples, make them Mn, else keep them the same
     select(1, 2, 8) %>%
     filter(Fst_cluster != "Peninsular") %>%

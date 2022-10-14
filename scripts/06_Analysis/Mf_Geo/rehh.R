@@ -45,6 +45,23 @@ wgs_ihs <- wgscan %>%
 wgs_ihs$ihs
 wgs_ihs$frequency.class
 
+# Scan for candidate regions 
+## First update iHS table so that its compatible
+wgs_ihs_2 <- wgs_ihs
+wgs_ihs_2$ihs <- wgs_ihs_2$ihs %>%
+    mutate(CHR = str_remove(CHR, "ordered_PKNH_")) %>%
+    mutate(CHR = str_remove(CHR, "_v2")) %>%
+    mutate(CHR = as.numeric(CHR)) %>%
+    as.data.frame()
+
+candidate_regions <- calc_candidate_regions(wgs_ihs_2,
+                                 threshold = 5,
+                                 pval = TRUE,
+                                 window_size = 1000,
+                                 overlap = 100,
+                                 min_n_extr_mrk = 3) %>%
+                                 add_column(Stat = "iHS") 
+
 ## Plot iHS and iHS p-values
 
 iHS <- wgs_ihs$ihs %>%
@@ -52,8 +69,6 @@ iHS <- wgs_ihs$ihs %>%
     mutate(CHR = str_remove(CHR, "_v2")) %>%
     ggplot(aes(x = CHR, y = IHS, colour = CHR)) +
     geom_jitter() + 
-    geom_hline(yintercept = 10, linetype = 10, colour = "#1F968BFF") +
-    geom_hline(yintercept = -10, linetype = 10, colour = "#1F968BFF") +
     theme(legend.position = "none") +
     scale_colour_viridis_d() +
     scale_x_discrete() +
@@ -67,7 +82,7 @@ iHS_pvalue <- wgs_ihs$ihs %>%
     mutate(CHR = str_remove(CHR, "_v2")) %>%
     ggplot(aes(x = CHR, y = LOGPVALUE, colour = CHR)) +
     geom_jitter() + 
-    geom_hline(yintercept = 20, linetype = 2, colour = "#1F968BFF") + # adjusted with bonferonni
+    geom_hline(yintercept = 4, linetype = 2, colour = "#1F968BFF") + # adjusted with bonferonni
     theme(legend.position = "none") +
     scale_colour_viridis_d() +
     xlab("Chromosomes") +
@@ -159,6 +174,29 @@ XP_EHH <- ies2xpehh(
         popname = "Betong_Kapit_Sarikei"
     )
 
+# Scan for candidate regions 
+candidate_regions_Rsb <- calc_candidate_regions(Rsb,
+                                 threshold = 5,
+                                 pval = TRUE,
+                                 window_size = 1000,
+                                 overlap = 100,
+                                 min_n_extr_mrk = 3) %>%
+                                 add_column(Stat = "Rsb")
+
+candidate_regions_XP_EHH <- calc_candidate_regions(XP_EHH,
+                                 threshold = 5,
+                                 pval = TRUE,
+                                 window_size = 1000,
+                                 overlap = 100,
+                                 min_n_extr_mrk = 3) %>%
+                                 add_column(Stat = "XP_EHH")
+
+## Save candidate regions for all stats
+candidate_regions %>%
+    rbind(candidate_regions_Rsb) %>%
+    rbind(candidate_regions_XP_EHH) %>%
+    write_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/rehh_geo/Mf_plots/candidate_regions.csv")
+    
 # Plot Rsb and p-value
 Rsb_plot <- Rsb %>%
     na.omit() %>%
@@ -167,8 +205,6 @@ Rsb_plot <- Rsb %>%
     rename("Rsb" = "RSB_Sabah_Betong_Kapit_Sarikei") %>%
     ggplot(aes(x = CHR, y = Rsb, colour = CHR)) +
     geom_jitter() + 
-    geom_hline(yintercept = 10, linetype = 5, colour = "#1F968BFF") +
-    geom_hline(yintercept = -10, linetype = 5, colour = "#1F968BFF") +
     theme(legend.position = "none") +
     scale_colour_viridis_d() +
     xlab("Chromsome") +
@@ -182,7 +218,7 @@ Rsb_pvalue <- Rsb %>%
     mutate(CHR = str_remove(CHR, "_v2")) %>%
     ggplot(aes(x = CHR, y = LOGPVALUE, colour = CHR)) +
     geom_jitter() + 
-    geom_hline(yintercept = 30, linetype = 2, colour = "#1F968BFF") + # adjusted with bonferonni
+    geom_hline(yintercept = 4, linetype = 2, colour = "#1F968BFF") + # adjusted with bonferonni
     theme(legend.position = "none") +
     scale_colour_viridis_d() +
     xlab("Chromosomes") +
@@ -198,8 +234,6 @@ XP_EHH_plot <- XP_EHH %>%
     mutate(CHR = str_remove(CHR, "_v2")) %>%
     ggplot(aes(x = CHR, y = XPEHH_Sabah_Betong_Kapit_Sarikei, colour = CHR)) +
     geom_jitter() + 
-    geom_hline(yintercept = 10, linetype = 5, colour = "#1F968BFF") +
-    geom_hline(yintercept = -10, linetype = 5, colour = "#1F968BFF") +
     theme(legend.position = "none") +
     scale_colour_viridis_d() +
     xlab("Chromsome") +
@@ -213,7 +247,7 @@ XP_EHH_pvalue <- XP_EHH %>%
     mutate(CHR = str_remove(CHR, "_v2")) %>%
     ggplot(aes(x = CHR, y = LOGPVALUE, colour = CHR)) +
     geom_jitter() + 
-    geom_hline(yintercept = 40, linetype = 2, colour = "#1F968BFF") + # adjusted with bonferonni
+    geom_hline(yintercept = 4, linetype = 2, colour = "#1F968BFF") + # adjusted with bonferonni
     theme(legend.position = "none") +
     scale_colour_viridis_d() +
     xlab("Chromosomes") +

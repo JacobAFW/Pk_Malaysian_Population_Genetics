@@ -20,7 +20,7 @@ Fst_plot_window <- Fst_matrix %>%
     theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), legend.position = "none") +
     ylab("Fst") +
     xlab("Windows (10000)")  +
-    scale_color_viridis_d("Chr") +
-    geom_hline(yintercept = 0.1, colour = "#1F968BFF")
+    scale_color_viridis_d("Chr") 
+    #geom_hline(yintercept = 0.4, colour = "#1F968BFF")
 
-ggsave("hmmIBD_Mf_Geo/Fst_sliding_window_plot.png", dpi = 600, width = 14, Fst_plot_window)
+ggsave("Mf_plots/Fst_sliding_window_plot.png", dpi = 600, width = 14, Fst_plot_window)

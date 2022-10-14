@@ -19,6 +19,7 @@ export PATH=$PATH:/g/data/pq84/bin/plink2/
 FASTA="/g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/data/ref_genomes/PKA1H1/fasta"
 VCF="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/filtered/"
 GATK="/g/data/pq84/bin/GenomeAnalysisTK-3.8-1-0/GenomeAnalysisTK.jar"
+REGIONS_TO_MASK="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/regions_to_mask.list"
 
 cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses
 ```
@@ -35,8 +36,6 @@ java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
     -o PK_consensus_filtered_pass.vcf
 ```
 
-############################################################################################################# WORK IN PROGRESS
-# TO Complete
 ## Calculate multiplicity of infection using moimix
 
 To install MCMCpack on Gadi: https://opus.nci.org.au/display/Help/R 
@@ -53,16 +52,15 @@ Steps:
     - alternative way of assessing clonality is to estmate Fws, with Fws < 0.95 indicating clonal infection (low MOI)
 
 **NB.** Clean up VCF.
-Add annotation the ID column of your VCF file.
-bcftools annotate --threads 10 --set-id +'%CHROM\_%POS\_%REF\_%FIRST_ALT' PK_consensus_filtered_pass.vcf > moimix/PK_consensus_filtered_pass.vcf
-
-
+Add annotation to the ID column of your VCF file and subset to only biallelic site (assumption of moimix).
+bcftools view PK_consensus_no_MOI.vcf-M2 | bcftools annotate --threads 10 --set-id +'%CHROM\_%POS\_%REF\_%FIRST_ALT' - > moimix/PK_consensus_biallelic.vcf
 
 Run below in R
 ```{R,eval=F}
 # Converting VCF to GDS for estMOI
+library(tidyverse)
 library(SeqArray)
-seqVCF2GDS("moimix/PK_consensus_filtered_pass.vcf", "moimix/PK_consensus_filtered_pass.gds", storage.option = "LZ4_RA")
+seqVCF2GDS("moimix/PK_consensus_biallelic.vcf", "moimix/PK_consensus_filtered_pass.gds", storage.option = "LZ4_RA")
 isolates <- seqOpen("moimix/PK_consensus_filtered_pass.gds") # read into R
 seqSummary(isolates)
 sample.id <- seqGetData(isolates, "sample.id")
@@ -91,20 +89,116 @@ param.estimates
 ## Plot MOI and export ######################
 
 ## Estiamting MOI with Fws
-fws_all <- getFws(isolates)
+fws_all <- getFws(isolates) %>%
+  as.data.frame() %>%
+  rownames_to_column(var = "sample") %>%
+  rename("Proportion" = ".")
 
 ## Plot MOI distribution and export ######################
 
-## identify isolates with high MOI
-library(tidyverse)
-fws_all %>%
-    filter() %>%
-    write_tsv("estMOI/high_MOI_samples.tsv")
+## output MOI data
+fws_all %>%  
+  write_tsv("moimix/fws_MOI.tsv")
+
+## output samples with HIGH MOI data
+fws_all %>%  
+  filter(Proportion < 0.85) %>% 
+  select(sample) %>%
+  write.table("moimix/fws_high_MOI.txt", col.names = F, row.names = F, quote = F)
+
+## plot MOI - col
+fws_plot <- fws_all %>%
+  arrange(desc(Proportion)) %>%
+  add_column(Sample = 1:nrow(.)) %>%
+  mutate(MOI = ifelse(Proportion >= 0.98, "No MOI",
+        ifelse(Proportion < 0.98 & Proportion > 0.85, "Low MOI", "High MOI"))) %>%
+  ggplot(aes(x = Sample, y = Proportion, colour = MOI)) +
+  geom_col() +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+ggsave("moimix/fws_plot.png", width = 10, fws_plot)
+
+## plot MOI - hist
+fws_plot <- fws_all %>%
+  arrange(desc(Proportion)) %>%
+  add_column(Sample = 1:nrow(.)) %>%
+  ggplot(aes(x = Proportion)) +
+  geom_histogram() +
+  ylab("Frequency")
+
+ggsave("moimix/fws_hist_plot.png", fws_plot)
+
+# Boxplots by location
+fws_all <- fws_all %>%
+  mutate(Sample = str_remove(sample, "_DK.*")) %>%
+  select(-sample) %>%
+  left_join(
+    readxl::read_xlsx("/g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/data/metadata/PK_Sabah_Sample_naming_indexes.xlsx") %>% 
+      select(1) %>%
+      add_column(Location = "Sabah") %>%
+      rename(Sample = sampleid) %>%
+      add_column(Cluster = "Sabah") %>% 
+      rbind(
+        read_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/data/metadata/Pk_clusters_metadata.csv") %>%
+        select(1, 3, 5) %>% 
+        rename(Location = area) %>%
+        mutate(Cluster = str_remove(Group, "-Pk")) %>% 
+        select(-Group) 
+      ) %>%
+      rbind(
+        read_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/data/metadata/Pk_clusters_peninsular_metadata.csv") %>%
+        select(2, 8) %>%
+        rename(Sample = ENA_accession_no_ES) %>%
+        add_column(Cluster = "Peninsular") 
+      ) %>%
+    mutate(Location = str_replace(Location, " ", "_")) 
+    ) %>%
+    mutate(MOI = ifelse(Proportion >= 0.98, "No MOI", ifelse(Proportion < 0.98 & Proportion > 0.85, "Low MOI", "High MOI"))) %>%
+    na.omit() %>%
+    mutate(Cluster = ifelse(grepl("PK_SB_DNA_011", Sample) | # does the ID match any of these
+                                grepl("PK_SB_DNA_091", Sample) | 
+                                grepl("PK_SB_DNA_043", Sample) |
+                                grepl("PK_SB_DNA_016", Sample) |  
+                                grepl("PK_SB_DNA_092", Sample) | 
+                                grepl("PK_SB_DNA_030", Sample) | 
+                                grepl("PK_SB_DNA_093", Sample) | 
+                                grepl("PK_SB_DNA_042", Sample) | 
+                                grepl("PK_SB_DNA_063", Sample), "Mn", .$Cluster)) %>% # if not, just use values from Cluster
+    mutate(Cluster = ifelse(Cluster == "Sabah", "Mf", .$Cluster))
+
+
+# Boxplot and point-plot by location
+fws_plot <- fws_all %>%
+  ggplot(aes(y = Location, x = Proportion, by = Location)) +
+  geom_boxplot() +
+  geom_point(aes(colour = Location)) +
+  geom_line(aes(colour = Location)) +
+  scale_color_viridis_d() +
+  theme(legend.position = "none") +
+  xlab("Fws")
+
+ggsave("moimix/fws_lcoations_boxplot.png", width = 8, fws_plot)
+
+fws_plot <- fws_all %>%
+  ggplot(aes(y = Cluster, x = Proportion, by = Cluster)) +
+  geom_boxplot() +
+  geom_point(aes(colour = Cluster)) +
+  geom_line(aes(colour = Cluster)) +
+  scale_color_viridis_d() +
+  theme(legend.position = "none") +
+  xlab("Fws")
+
+ggsave("moimix/fws_cluster_boxplot.png", width = 8, fws_plot)
 ```
 
-############################################################################################################# WORK IN PROGRESS
+## Exclude samples with high MOI
 
-## Normalise VCF and convert filtered vcf to bcf
+```{bash,eval=F}
+bcftools view PK_consensus_filtered_pass.vcf -s ^ERR2214850,ERR2214856,ERR3374041,ERR985386,ERR985395,ERR985396,ERR985397,ERR985405,ERR985410,ERR985417,PK_SB_DNA_006_DKDL210002135-1a_HWHGKDSXY_L4,PK_SB_DNA_032_DKDL210002161-1a_HWHGKDSXY_L4,PK_SB_DNA_039_DKDL210002168-1a_HWHGKDSXY_L4,PK_SB_DNA_048_DKDL210002177-1a_HWHGKDSXY_L4,PK_SB_DNA_051_DKDL210002180-1a_HWHGKDSXY_L4,PK_SB_DNA_055_DKDL210002184-1a_HWHGKDSXY_L4,PK_SB_DNA_083_DKDL210002212-1a_HWHGKDSXY_L4 \
+  > PK_consensus_no_MOI.vcf
+```
+
+## Normalise VCF & convert filtered vcf to bcf
 
  - Ensure that multi-allelic calls are split (1st part)
  - Left-align indels (2nd part)
@@ -113,7 +207,7 @@ fws_all %>%
  --indiv-sort - specify how samples will be sorted - use to be consistent when adding metadata downstream 
 
 ```{bash,eval=F}
-bcftools view PK_consensus_filtered_pass.vcf | \
+bcftools view PK_consensus_no_MOI.vcf| \
   sed 's/AD,Number=R/AD,Number=./' | \
   bcftools norm -m-any | \
   bcftools norm --check-ref w -f $FASTA/strain_A1_H.1.Icor.fasta | \
@@ -121,10 +215,17 @@ bcftools view PK_consensus_filtered_pass.vcf | \
   > PK_consensus_filtered_pass.bcf
 ```
 
+
 ## Convert to PLINK format 
 
 Generic PLINK function to produce generic PLINK files
-First create sample_order file
+First create sample_order file & regions_to_mask file 
+
+The regions we masked are here:
+https://plasmodb.org/plasmo/service/users/current/steps/429386433/reports/attributesTabular
+https://www.ncbi.nlm.nih.gov/pmc/articles/PMC5918592/
+
+and have to follow this format: https://www.cog-genomics.org/plink/1.9/input#make_set
 
 ```{bash,eval=F}
 bcftools view PK_consensus_filtered_pass.bcf | sed -n '/#CHROM/,$p' | head -n 1 | tr '\t' '\n' |  sed -n '/ERR2214837/,$p' | awk '{print $1 "\t" $1}' > sample_order.txt
@@ -136,9 +237,12 @@ plink --bcf PK_consensus_filtered_pass.bcf \
   --allow-extra-chr 0 \
   --make-bed \
   --indiv-sort file sample_order.txt \
+  --exclude 'range' regions_to_mask.txt \
   --allow-no-sex \
   --out Pk
 ```
+
+  
 
 ## Add metadata to PLINK fam
 
@@ -230,7 +334,7 @@ pk_maf <- read_table("Pk.frq", col_names=T) %>%
 pk_maf_density <- pk_maf  %>%
     ggplot(aes(x = MAF)) +
     geom_density(alpha=.3) +
-    geom_vline(xintercept = 0.01, colour = "#1F968BFF") 
+    geom_vline(xintercept = 0.05, colour = "#1F968BFF") 
 
 ggsave("Pk_maf_density.png", dpi = 600, pk_maf_density)
 
@@ -288,7 +392,7 @@ sample_miss_density <- sample_mis %>%
     select(2:ncol(.)) %>%
     ggplot(aes(x = Geno_Miss)) +
     geom_density(alpha=.3) +
-    geom_vline(xintercept = 0.1, colour = "#1F968BFF") 
+    geom_vline(xintercept = 0.25, colour = "#1F968BFF") 
 
 ggsave("sample_miss_density_plot.png", width = 12, dpi = 600, sample_miss_density)
 
@@ -557,7 +661,7 @@ Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysi
 
 ## Fst statistic - Mn vs Mf
 
-First create a file that contains the clusters you want used for the Fst. You can ammend the Pk.fam file (or metadata), but the file needs to be structured in PLINKs weird FID-IID-Cluster format.
+First create a file that contains the clusters you want use for the Fst. You can ammend the Pk.fam file (or metadata), but the file needs to be structured in PLINKs weird FID-IID-Cluster format.
 
 Steps:
     - Apply filter (as done previously)
@@ -599,8 +703,7 @@ read_csv("Pk.csv", col_names = F) %>%
                                 grepl("PK_SB_DNA_030", X1) | 
                                 grepl("PK_SB_DNA_093", X1) | 
                                 grepl("PK_SB_DNA_042", X1) | 
-                                grepl("PK_SB_DNA_063", X1) |
-                                grepl("PK_SB_DNA_028", X1) , "Mn", .$X7)) %>% # if not, just use values from X7 - clusters and Sabah
+                                grepl("PK_SB_DNA_063", X1), "Mn", .$X7)) %>% # if not, just use values from X7 - clusters and Sabah
     mutate(Fst_cluster = ifelse(Fst_cluster == "Sabah", "Mf", .$Fst_cluster)) %>% # if its the remaining Sabah samples, make them Mn, else keep them the same
     select(1, 2, 8) %>%
     filter(Fst_cluster != "Peninsular") %>%
@@ -636,7 +739,7 @@ Fst_plot_window <- Fst_matrix %>%
     ylab("Fst") +
     xlab("Windows (10000)")  +
     scale_color_viridis_d("Chr") +
-    geom_hline(yintercept = 0.5, colour = "#1F968BFF")
+    geom_hline(yintercept = 0.4, colour = "#1F968BFF")
 
 ggsave("Pk_Mn_vs_Mf/Fst_sliding_window_plot.png", dpi = 600, width = 14, Fst_plot_window)
 ```
@@ -654,22 +757,26 @@ Steps:
     - subset VCF into a VCF for individual chromosomes using SelectVariants 
     - then use sample_clusters.txt created previously for the Fst calculations to create a list of 
     - SelectVariants is then used again to subset each of the chromosome-specific VCF files into the two clusters
+    -XL is used to filter out problematic regions (SICAvar, Kir and sub-telomeric regions - as previously defined)
 
 **Need to ammend the sn and xl line manually based on outputs of "cat"**
 
 ```{bash}
-grep '##contig=<ID=ordered' PK_consensus_filtered_pass.vcf | sed 's/##contig=<ID=//g' | sed 's/,.*//g' > rehh/chromosome.txt
+grep '##contig=<ID=ordered' PK_consensus_no_MOI.vcf| sed 's/##contig=<ID=//g' | sed 's/,.*//g' > rehh/chromosome.txt
 
 cat sample_clusters.txt | awk '{print "-sn " $1}' | tr '\n' ' '
+
+REGIONS_TO_MASK="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/regions_to_mask.list"
 
 for i in $(cat rehh/chromosome.txt)
     do 
         java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
         -T SelectVariants \
         -R $FASTA/strain_A1_H.1.Icor.fasta \
-        -V PK_consensus_filtered_pass.vcf  \
+        -V PK_consensus_no_MOI.vcf \
         -L $i \
-        -sn ERR2214837 -sn ERR2214838 -sn ERR2214839 -sn ERR2214840 -sn ERR2214841 -sn ERR2214842 -sn ERR2214843 -sn ERR2214844 -sn ERR2214845 -sn ERR2214846 -sn ERR2214847 -sn ERR2214848 -sn ERR2214849 -sn ERR2214850 -sn ERR2214851 -sn ERR2214852 -sn ERR2214853 -sn ERR2214854 -sn ERR2214855 -sn ERR2214856 -sn ERR2214857 -sn ERR274221 -sn ERR274222 -sn ERR274224 -sn ERR274225 -sn ERR366425 -sn ERR366426 -sn ERR985372 -sn ERR985373 -sn ERR985374 -sn ERR985375 -sn ERR985376 -sn ERR985377 -sn ERR985378 -sn ERR985379 -sn ERR985380 -sn ERR985381 -sn ERR985382 -sn ERR985383 -sn ERR985384 -sn ERR985385 -sn ERR985386 -sn ERR985387 -sn ERR985388 -sn ERR985389 -sn ERR985390 -sn ERR985391 -sn ERR985392 -sn ERR985393 -sn ERR985394 -sn ERR985395 -sn ERR985396 -sn ERR985397 -sn ERR985398 -sn ERR985399 -sn ERR985400 -sn ERR985401 -sn ERR985402 -sn ERR985403 -sn ERR985404 -sn ERR985405 -sn ERR985406 -sn ERR985407 -sn ERR985408 -sn ERR985409 -sn ERR985410 -sn ERR985411 -sn ERR985412 -sn ERR985413 -sn ERR985415 -sn ERR985416 -sn ERR985417 -sn ERR985418 -sn ERR985419 -sn PK_SB_DNA_001_DKDL210002130-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_002_DKDL210002131-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_003_DKDL210002132-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_005_DKDL210002134-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_006_DKDL210002135-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_008_DKDL210002137-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_009_DKDL210002138-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_010_DKDL210002139-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_013_DKDL210002142-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_014_DKDL210002143-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_015_DKDL210002144-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_021_DKDL210002150-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_023_DKDL210002152-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_029_DKDL210002158-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_031_DKDL210002160-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_032_DKDL210002161-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_034_DKDL210002163-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_035_DKDL210002164-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_036_DKDL210002165-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_038_DKDL210002167-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_039_DKDL210002168-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_040_DKDL210002169-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_044_DKDL210002173-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_045_DKDL210002174-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_046_DKDL210002175-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_047_DKDL210002176-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_048_DKDL210002177-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_049_DKDL210002178-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_051_DKDL210002180-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_052_DKDL210002181-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_053_DKDL210002182-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_054_DKDL210002183-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_055_DKDL210002184-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_057_DKDL210002186-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_067_DKDL210002196-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_068_DKDL210002197-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_069_DKDL210002198-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_070_DKDL210002199-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_072_DKDL210002201-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_073_DKDL210002202-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_074_DKDL210002203-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_077_DKDL210002206-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_081_DKDL210002210-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_082_DKDL210002211-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_083_DKDL210002212-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_086_DKDL210002215-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_087_DKDL210002216-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_088_DKDL210002217-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_089_DKDL210002218-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_090_DKDL210002219-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_094_DKDL210002223-1a_HWHGKDSXY_L4 \
+        -sn ERR2214837 -sn ERR2214838 -sn ERR2214839 -sn ERR2214840 -sn ERR2214841 -sn ERR2214842 -sn ERR2214843 -sn ERR2214844 -sn ERR2214845 -sn ERR2214846 -sn ERR2214847 -sn ERR2214848 -sn ERR2214849 -sn ERR2214851 -sn ERR2214852 -sn ERR2214853 -sn ERR2214854 -sn ERR2214855 -sn ERR2214857 -sn ERR274221 -sn ERR274222 -sn ERR274224 -sn ERR274225 -sn ERR366425 -sn ERR366426 -sn ERR985372 -sn ERR985373 -sn ERR985374 -sn ERR985375 -sn ERR985376 -sn ERR985377 -sn ERR985378 -sn ERR985379 -sn ERR985380 -sn ERR985381 -sn ERR985382 -sn ERR985383 -sn ERR985384 -sn ERR985385 -sn ERR985387 -sn ERR985388 -sn ERR985389 -sn ERR985390 -sn ERR985391 -sn ERR985392 -sn ERR985393 -sn ERR985394 -sn ERR985398 -sn ERR985399 -sn ERR985400 -sn ERR985401 -sn ERR985402 -sn ERR985403 -sn ERR985404 -sn ERR985406 -sn ERR985407 -sn ERR985408 -sn ERR985409 -sn ERR985411 -sn ERR985412 -sn ERR985413 -sn ERR985415 -sn ERR985416 -sn ERR985418 -sn ERR985419 -sn PK_SB_DNA_001_DKDL210002130-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_002_DKDL210002131-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_003_DKDL210002132-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_005_DKDL210002134-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_008_DKDL210002137-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_009_DKDL210002138-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_010_DKDL210002139-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_013_DKDL210002142-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_014_DKDL210002143-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_015_DKDL210002144-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_021_DKDL210002150-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_023_DKDL210002152-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_029_DKDL210002158-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_031_DKDL210002160-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_034_DKDL210002163-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_035_DKDL210002164-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_036_DKDL210002165-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_038_DKDL210002167-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_040_DKDL210002169-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_044_DKDL210002173-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_045_DKDL210002174-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_046_DKDL210002175-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_047_DKDL210002176-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_049_DKDL210002178-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_052_DKDL210002181-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_053_DKDL210002182-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_054_DKDL210002183-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_057_DKDL210002186-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_067_DKDL210002196-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_068_DKDL210002197-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_069_DKDL210002198-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_070_DKDL210002199-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_072_DKDL210002201-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_073_DKDL210002202-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_074_DKDL210002203-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_077_DKDL210002206-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_081_DKDL210002210-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_082_DKDL210002211-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_086_DKDL210002215-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_087_DKDL210002216-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_088_DKDL210002217-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_089_DKDL210002218-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_090_DKDL210002219-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_094_DKDL210002223-1a_HWHGKDSXY_L4 \
+        -XL $REGIONS_TO_MASK \
         -o rehh/${i}.vcf.gz
     done 
 
@@ -678,8 +785,8 @@ cat sample_clusters.txt | grep 'Mn' | awk '{print "-xl_sn " $1}' | tr '\n' ' '
 
 
 cd rehh
-
 ls *vcf.gz > vcf_list.txt
+
 
 for i in $(cat vcf_list.txt)
     do  
@@ -687,7 +794,8 @@ for i in $(cat vcf_list.txt)
         -T SelectVariants \
         -R $FASTA/strain_A1_H.1.Icor.fasta \
         -V $i \
-        -sn ERR2214837 -sn ERR2214838 -sn ERR2214839 -sn ERR2214840 -sn ERR2214841 -sn ERR2214842 -sn ERR2214843 -sn ERR2214844 -sn ERR2214845 -sn ERR2214846 -sn ERR2214847 -sn ERR2214848 -sn ERR2214849 -sn ERR2214850 -sn ERR2214851 -sn ERR2214852 -sn ERR2214853 -sn ERR2214854 -sn ERR2214855 -sn ERR2214856 -sn ERR2214857 -sn ERR274224 -sn ERR274225 -sn ERR366425 -sn ERR985410 -sn ERR985411 -sn ERR985412 -sn ERR985413 -sn ERR985415 -sn ERR985416 -sn ERR985417 -sn ERR985418 -sn ERR985419 -sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 \
+        -sn ERR2214837 -sn ERR2214838 -sn ERR2214839 -sn ERR2214840 -sn ERR2214841 -sn ERR2214842 -sn ERR2214843 -sn ERR2214844 -sn ERR2214845 -sn ERR2214846 -sn ERR2214847 -sn ERR2214848 -sn ERR2214849 -sn ERR2214851 -sn ERR2214852 -sn ERR2214853 -sn ERR2214854 -sn ERR2214855 -sn ERR2214857 -sn ERR274224 -sn ERR274225 -sn ERR366425 -sn ERR985411 -sn ERR985412 -sn ERR985413 -sn ERR985415 -sn ERR985416 -sn ERR985418 -sn ERR985419 -sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 \
+        -XL $REGIONS_TO_MASK \
         -o ${i%.vcf.gz}_Mn.vcf.gz
     done
 
@@ -697,11 +805,12 @@ for i in $(cat vcf_list.txt)
         -T SelectVariants \
         -R $FASTA/strain_A1_H.1.Icor.fasta \
         -V $i \
-        -xl_sn ERR2214837 -xl_sn ERR2214838 -xl_sn ERR2214839 -xl_sn ERR2214840 -xl_sn ERR2214841 -xl_sn ERR2214842 -xl_sn ERR2214843 -xl_sn ERR2214844 -xl_sn ERR2214845 -xl_sn ERR2214846 -xl_sn ERR2214847 -xl_sn ERR2214848 -xl_sn ERR2214849 -xl_sn ERR2214850 -xl_sn ERR2214851 -xl_sn ERR2214852 -xl_sn ERR2214853 -xl_sn ERR2214854 -xl_sn ERR2214855 -xl_sn ERR2214856 -xl_sn ERR2214857 -xl_sn ERR274224 -xl_sn ERR274225 -xl_sn ERR366425 -xl_sn ERR985410 -xl_sn ERR985411 -xl_sn ERR985412 -xl_sn ERR985413 -xl_sn ERR985415 -xl_sn ERR985416 -xl_sn ERR985417 -xl_sn ERR985418 -xl_sn ERR985419 -xl_sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 \
+        -xl_sn ERR2214837 -xl_sn ERR2214838 -xl_sn ERR2214839 -xl_sn ERR2214840 -xl_sn ERR2214841 -xl_sn ERR2214842 -xl_sn ERR2214843 -xl_sn ERR2214844 -xl_sn ERR2214845 -xl_sn ERR2214846 -xl_sn ERR2214847 -xl_sn ERR2214848 -xl_sn ERR2214849 -xl_sn ERR2214851 -xl_sn ERR2214852 -xl_sn ERR2214853 -xl_sn ERR2214854 -xl_sn ERR2214855 -xl_sn ERR2214857 -xl_sn ERR274224 -xl_sn ERR274225 -xl_sn ERR366425 -xl_sn ERR985411 -xl_sn ERR985412 -xl_sn ERR985413 -xl_sn ERR985415 -xl_sn ERR985416 -xl_sn ERR985418 -xl_sn ERR985419 -xl_sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 \
+        -XL $REGIONS_TO_MASK \
         -o ${i%.vcf.gz}_Mf.vcf.gz
     done
 
-Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/Mf_VS_Mn/
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/Mf_VS_Mn/rehh.R
 ```
 
 Some of the different stats that can be calculated with rehh:
@@ -758,6 +867,25 @@ wgs_ihs <- wgscan %>%
 wgs_ihs$ihs
 wgs_ihs$frequency.class
 
+
+# Scan for candidate regions 
+## First update iHS table so that its compatible
+wgs_ihs_2 <- wgs_ihs
+wgs_ihs_2$ihs <- wgs_ihs_2$ihs %>%
+    mutate(CHR = str_remove(CHR, "ordered_PKNH_")) %>%
+    mutate(CHR = str_remove(CHR, "_v2")) %>%
+    mutate(CHR = as.numeric(CHR)) %>%
+    as.data.frame()
+
+candidate_regions <- calc_candidate_regions(wgs_ihs_2,
+                                 threshold = 4,
+                                 pval = TRUE,
+                                 window_size = 1000,
+                                 overlap = 100,
+                                 min_n_extr_mrk = 3) %>%
+                                 add_column(Stat = "iHS") 
+
+
 ## Plot iHS and iHS p-values
 
 iHS <- wgs_ihs$ihs %>%
@@ -765,9 +893,8 @@ iHS <- wgs_ihs$ihs %>%
     mutate(CHR = str_remove(CHR, "_v2")) %>%
     ggplot(aes(x = CHR, y = IHS, colour = CHR)) +
     geom_jitter() + 
-    geom_hline(yintercept = 4, linetype = 4, colour = "#1F968BFF") +
-    geom_hline(yintercept = -4, linetype = 4, colour = "#1F968BFF") +
     theme(legend.position = "none") +
+    scale_colour_viridis_d() +
     scale_x_discrete() +
     xlab("Chromsome") +
     ylab("iHS") 
@@ -781,10 +908,12 @@ iHS_pvalue <- wgs_ihs$ihs %>%
     geom_jitter() + 
     geom_hline(yintercept = 4, linetype = 2, colour = "#1F968BFF") + # adjusted with bonferonni
     theme(legend.position = "none") +
+    scale_colour_viridis_d() +
     xlab("Chromosomes") +
     ylab("iHS p-value")
 
 ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk_Mn_vs_Mf/iHS_pvalue.png", dpi = 600, width = 10, iHS_pvalue)
+
 
 ## Plotting using rehh
 
@@ -870,6 +999,31 @@ XP_EHH <- ies2xpehh(
         popname = "Mf"
     )
 
+
+# Scan for candidate regions 
+candidate_regions_Rsb <- calc_candidate_regions(Rsb,
+                                 threshold = 4,
+                                 pval = TRUE,
+                                 window_size = 1000,
+                                 overlap = 100,
+                                 min_n_extr_mrk = 3) %>%
+                                 add_column(Stat = "Rsb")
+
+candidate_regions_XP_EHH <- calc_candidate_regions(XP_EHH,
+                                 threshold = 4,
+                                 pval = TRUE,
+                                 window_size = 1000,
+                                 overlap = 100,
+                                 min_n_extr_mrk = 3) %>%
+                                 add_column(Stat = "XP_EHH")
+
+## Save candidate regions for all stats
+candidate_regions %>%
+    rbind(candidate_regions_Rsb) %>%
+    rbind(candidate_regions_XP_EHH) %>%
+    write_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk_Mn_vs_Mf/candidate_regions.csv")
+
+
 # Plot Rsb and p-value
 Rsb_plot <- Rsb %>%
     na.omit() %>%
@@ -878,8 +1032,6 @@ Rsb_plot <- Rsb %>%
     rename("Rsb" = "RSB_Mn_Mf") %>%
     ggplot(aes(x = CHR, y = Rsb, colour = CHR)) +
     geom_jitter() + 
-    geom_hline(yintercept = 5, linetype = 5, colour = "#1F968BFF") +
-    geom_hline(yintercept = -5, linetype = 5, colour = "#1F968BFF") +
     theme(legend.position = "none") +
     scale_colour_viridis_d() +
     xlab("Chromsome") +
@@ -893,7 +1045,7 @@ Rsb_pvalue <- Rsb %>%
     mutate(CHR = str_remove(CHR, "_v2")) %>%
     ggplot(aes(x = CHR, y = LOGPVALUE, colour = CHR)) +
     geom_jitter() + 
-    geom_hline(yintercept = 6, linetype = 2, colour = "#1F968BFF") + # adjusted with bonferonni
+    geom_hline(yintercept = 4, linetype = 2, colour = "#1F968BFF") + # adjusted with bonferonni
     theme(legend.position = "none") +
     scale_colour_viridis_d() +
     xlab("Chromosomes") +
@@ -909,8 +1061,6 @@ XP_EHH_plot <- XP_EHH %>%
     mutate(CHR = str_remove(CHR, "_v2")) %>%
     ggplot(aes(x = CHR, y = XPEHH_Mn_Mf, colour = CHR)) +
     geom_jitter() + 
-    geom_hline(yintercept = 5, linetype = 5, colour = "#1F968BFF") +
-    geom_hline(yintercept = -5, linetype = 5, colour = "#1F968BFF") +
     theme(legend.position = "none") +
     scale_colour_viridis_d() +
     xlab("Chromsome") +
@@ -924,7 +1074,7 @@ XP_EHH_pvalue <- XP_EHH %>%
     mutate(CHR = str_remove(CHR, "_v2")) %>%
     ggplot(aes(x = CHR, y = LOGPVALUE, colour = CHR)) +
     geom_jitter() + 
-    geom_hline(yintercept = 6, linetype = 2, colour = "#1F968BFF") + # adjusted with bonferonni
+    geom_hline(yintercept = 4, linetype = 2, colour = "#1F968BFF") + # adjusted with bonferonni
     theme(legend.position = "none") +
     scale_colour_viridis_d() +
     xlab("Chromosomes") +
@@ -1002,18 +1152,20 @@ Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysi
 **Need to ammend the sn and xl line manually based on outputs of "cat"**
 
 ```{bash}
-grep '##contig=<ID=ordered' PK_consensus_filtered_pass.vcf | sed 's/##contig=<ID=//g' | sed 's/,.*//g' > rehh/chromosome.txt
+grep '##contig=<ID=ordered' PK_consensus_no_MOI.vcf| sed 's/##contig=<ID=//g' | sed 's/,.*//g' > rehh/chromosome.txt
 
 cat sample_clusters.txt | awk '{print "-sn " $1}' | tr '\n' ' '
+rm -f rehh/*vcf.gz*
 
 for i in $(cat rehh/chromosome.txt)
     do 
         java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
         -T SelectVariants \
         -R $FASTA/strain_A1_H.1.Icor.fasta \
-        -V PK_consensus_filtered_pass.vcf  \
+        -V PK_consensus_no_MOI.vcf \
         -L $i \
-        -sn PK_SB_DNA_001_DKDL210002130-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_002_DKDL210002131-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_003_DKDL210002132-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_005_DKDL210002134-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_006_DKDL210002135-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_008_DKDL210002137-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_009_DKDL210002138-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_010_DKDL210002139-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_013_DKDL210002142-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_014_DKDL210002143-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_015_DKDL210002144-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_021_DKDL210002150-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_023_DKDL210002152-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_029_DKDL210002158-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_031_DKDL210002160-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_032_DKDL210002161-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_034_DKDL210002163-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_035_DKDL210002164-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_036_DKDL210002165-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_038_DKDL210002167-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_039_DKDL210002168-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_040_DKDL210002169-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_044_DKDL210002173-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_045_DKDL210002174-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_046_DKDL210002175-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_047_DKDL210002176-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_048_DKDL210002177-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_049_DKDL210002178-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_051_DKDL210002180-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_052_DKDL210002181-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_053_DKDL210002182-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_054_DKDL210002183-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_055_DKDL210002184-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_057_DKDL210002186-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_067_DKDL210002196-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_068_DKDL210002197-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_069_DKDL210002198-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_070_DKDL210002199-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_072_DKDL210002201-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_073_DKDL210002202-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_074_DKDL210002203-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_077_DKDL210002206-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_081_DKDL210002210-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_082_DKDL210002211-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_083_DKDL210002212-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_086_DKDL210002215-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_087_DKDL210002216-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_088_DKDL210002217-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_089_DKDL210002218-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_090_DKDL210002219-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_094_DKDL210002223-1a_HWHGKDSXY_L4 \
+        -sn PK_SB_DNA_001_DKDL210002130-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_002_DKDL210002131-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_003_DKDL210002132-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_005_DKDL210002134-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_008_DKDL210002137-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_009_DKDL210002138-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_010_DKDL210002139-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_013_DKDL210002142-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_014_DKDL210002143-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_015_DKDL210002144-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_021_DKDL210002150-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_023_DKDL210002152-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_029_DKDL210002158-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_031_DKDL210002160-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_034_DKDL210002163-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_035_DKDL210002164-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_036_DKDL210002165-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_038_DKDL210002167-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_040_DKDL210002169-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_044_DKDL210002173-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_045_DKDL210002174-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_046_DKDL210002175-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_047_DKDL210002176-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_049_DKDL210002178-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_052_DKDL210002181-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_053_DKDL210002182-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_054_DKDL210002183-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_057_DKDL210002186-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_067_DKDL210002196-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_068_DKDL210002197-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_069_DKDL210002198-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_070_DKDL210002199-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_072_DKDL210002201-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_073_DKDL210002202-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_074_DKDL210002203-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_077_DKDL210002206-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_081_DKDL210002210-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_082_DKDL210002211-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_086_DKDL210002215-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_087_DKDL210002216-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_088_DKDL210002217-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_089_DKDL210002218-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_090_DKDL210002219-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_094_DKDL210002223-1a_HWHGKDSXY_L4 \
+        -XL $REGIONS_TO_MASK \
         -o rehh/${i}.vcf.gz
     done 
 
@@ -1022,7 +1174,6 @@ cat sample_clusters.txt | grep 'Mn' | awk '{print "-xl_sn " $1}' | tr '\n' ' '
 
 
 cd rehh
-rm -f *Mf.vcf.gz* *Mn.vcf.gz*
 ls *vcf.gz > vcf_list.txt
 
 for i in $(cat vcf_list.txt)
@@ -1031,7 +1182,8 @@ for i in $(cat vcf_list.txt)
         -T SelectVariants \
         -R $FASTA/strain_A1_H.1.Icor.fasta \
         -V $i \
-        -sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 \
+        -sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 \
+        -XL $REGIONS_TO_MASK \
         -o ${i%.vcf.gz}_Mn.vcf.gz
     done
 
@@ -1041,7 +1193,8 @@ for i in $(cat vcf_list.txt)
         -T SelectVariants \
         -R $FASTA/strain_A1_H.1.Icor.fasta \
         -V $i \
-        -xl_sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 \
+        -xl_sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 \
+        -XL $REGIONS_TO_MASK \
         -o ${i%.vcf.gz}_Mf.vcf.gz
     done
 
@@ -1068,7 +1221,7 @@ cat Pk.fam | grep 'Sabah\|Betong\|Kapit' > include_samples.txt
 plink --bfile cleaned --keep include_samples.txt --cluster --mds-plot 10 --out Pk
 plink --bfile cleaned --keep include_samples.txt --pca --out Pk
 plink --bfile cleaned --keep include_samples.txt --distance square --out Pk
-Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/Pk_Sabah_Kapit_Betong/ordination_plots_Mf_VS_Mn_SABAH_ONLY.R
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/Kapit_Betong_Sabah/ordination_plots_Kapit_Betong_Sabah.R
 ```
 
 **Did NOT progress beyond clutering and trees as it did not look interesting.**
@@ -1077,9 +1230,6 @@ Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysi
 # Comparing districts within Sabah
 
 **Attempted to create clusters using geographic distribution of collected samples, but no patterns emerged.**
-
-
-
 
 
 #########################################################################################################
@@ -1111,8 +1261,9 @@ hmmIBD format:
 
 
 ```{bash,eval=F}
+mkdir hmmIBD
 awk '{print $1}' cleaned.fam > exclude_tmp1.txt
-bcftools view PK_consensus_filtered_pass.bcf | grep '#CHROM' | tr '\t' '\n' | sed -n '/ERR2214837/,$p' > exclude_tmp2.txt
+bcftools view PK_consensus_no_MOI.vcf | grep '#CHROM' | tr '\t' '\n' | sed -n '/ERR2214837/,$p' > exclude_tmp2.txt
 fgrep -v -f exclude_tmp1.txt exclude_tmp2.txt > hmmIBD/exclude.txt
 rm -f exclude_tmp1.txt exclude_tmp2.txt
 
@@ -1135,7 +1286,7 @@ library(data.table)
 
 read_tsv("hmmIBD/grep_patterns.tsv", col_names = c("CHROM", "POS")) %>%
         left_join(
-                read_table("PK_consensus_filtered_pass.vcf", skip = 86) %>%
+                read_table("PK_consensus_no_MOI.vcf", skip = 87) %>%
                 rename("CHROM" = `#CHROM`) # this first section selects only variants that passed the PLINK filters we applied
         ) %>%
         mutate(CHROM = str_remove(CHROM, "ordered_PKNH_"),
@@ -1390,6 +1541,7 @@ save.pairwise.matrix(Pk.pairwise.median, "Pk_pairwise_IBD_median.txt")
 Pk.pairwise.summary <- calculate.pairwise.table(Pk.IBD, metadata, "Cluster", statistics)
 save.pairwise.table(Pk.pairwise.summary, "Pk_pairwise_summary.txt")
 ```
+
 
 ## Plot pairwise statistics from hmmIBD output (thanks Edwin!)
 
@@ -1791,7 +1943,7 @@ done
 awk '/CV/ {print $3,$4}' *out | cut -c 4,7-20 > Pk.cv.error
 ```
 
-**NB** I had some issues getting a couple fo the packages up and running on Gadi and so I ran this on my local.
+**NB** I had some issues getting a couple of the packages up and running on Gadi and so I ran this on my local.
 
 ```{R,eval=F} 
 # Packages
@@ -1865,7 +2017,7 @@ map_data <- popgen_metadata %>%
   ) %>% 
   mutate(Location = ifelse(Location == "Sungai_Siuit", "Sungai_Siput", .$Location))
 
-#map_data %>%  # used this to get long an lat
+# map_data %>%  # used this to get long an lat
  # select(Location) %>% 
   #unique() %>% 
 #write_csv("data/metadata/map_data.csv")
@@ -1940,87 +2092,25 @@ admixture_table %>%
     theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
     scale_fill_manual(values = c("#440154FF", "#39568CFF", "#73D055FF")) +
     facet_grid(~Geo_cluster, scales = "free", space = "free")
-
-
-# IBD sites in sample 32 compared to Peninsular samples 
-
-## Dot and line plot using hmmIBD output
-
-read.table("data/hmmIBD/PK_SB_DNA_032.hmm.txt") %>% 
-  mutate(different = as.numeric(different)) %>%
-  left_join(
-    admixture_table %>% 
-      rename(sample1 = Sample) %>% 
-      select(4:6)
-      ) %>%
-  mutate(sample1 = paste(sample1, 1:n(), sep = "_")) %>% 
-  pivot_longer(cols = start:end, names_to = "pos", values_to = "pos_value") %>% 
-  filter(Cluster == "Peninsular") %>% 
-  arrange(sample1) %>% 
-  filter(chr == 3 | chr == 9) %>% 
-  mutate(chr = paste0("Chromosome ", chr)) %>% 
-  mutate(IBD = as.factor(different)) %>% 
-  ggplot(aes(x = pos_value, y = IBD, colour = IBD, group = sample1)) +
-  geom_point() +
-  geom_line() +
-  theme(legend.position = "none") +
-  facet_grid(~chr, scales = "free", space = "free") +
-  scale_colour_manual(values = c( "#73D055FF", "#440154FF")) +
-  xlab("Position in chromosome")
-
-# Table with IBD sample info
-
-read.table("data/hmmIBD/PK_SB_DNA_032.hmm.txt") %>% 
-  mutate(different = as.numeric(different)) %>%
-  left_join(
-    admixture_table %>% 
-      rename(sample1 = Sample) %>% 
-      select(4:6)
-      ) %>% 
-  mutate(sample1 = paste(sample1, 1:n(), sep = "_")) %>% 
-  filter(different == 0 & Cluster == "Peninsular") %>% 
-  filter(chr == 3 | chr == 9)
-
-## Heatmap of 'genotype file' checking for possible IBD
-
-	
-IBD_heatmap_data <- read_tsv("data/hmmIBD/hmmIBD_temp.tsv") %>% # The input file is a chromsome-specific subset of the genotype file created for input into hmmIBD.
-  pivot_longer(3:ncol(.), names_to = "Sample", values_to = "Genotype") %>% 
-  left_join(
-    admixture_table %>% 
-      select(4:6)
-  ) %>% 
-  filter(grepl("PK_SB_DNA_032", Sample) | Cluster == "Peninsular") 
-
-
-IBD_heatmap_annotation <- admixture_table %>% 
-  select(Sample, Cluster) %>% 
-  column_to_rownames("Sample")
-
-IBD_heatmap_data %>% 
-  filter(POS > 657462 & POS < 668818) %>% 
-  select(2:4) %>% 
-  pivot_wider(names_from = "POS", values_from = "Genotype") %>% 
-  column_to_rownames("Sample") %>% 
-  pheatmap(show_rownames = T, show_colnames = F, annotation_row = IBD_heatmap_annotation, cluster_cols = F)
-
-IBD_heatmap_data <- read_tsv("data/hmmIBD/hmmIBD_temp2.tsv") %>% 
-  pivot_longer(3:ncol(.), names_to = "Sample", values_to = "Genotype") %>% 
-  left_join(
-    admixture_table %>% 
-      select(4:6)
-  ) %>% 
-  filter(grepl("PK_SB_DNA_032", Sample) | grepl("ERR3374033", Sample) | grepl("ERR3374037", Sample)
-         | grepl("ERR3374040", Sample) | grepl("ERR3374051", Sample) | grepl("ERR3374057", Sample)) 
-
-IBD_heatmap_data %>% 
-  filter(POS > 1848114 & POS < 1850009) %>% 
-  select(2:4) %>% 
-  pivot_wider(names_from = "POS", values_from = "Genotype") %>% 
-  column_to_rownames("Sample") %>% 
-  pheatmap(show_rownames = T, show_colnames = F, annotation_row = IBD_heatmap_annotation, cluster_cols = F)
-
 ```
+
+
+# Looking at potential Mf-Mn introgression
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 #########################################################################################################
 
@@ -2126,6 +2216,7 @@ The IBD analysis done above suggests that Kapit and Betong can be grouped togeth
 ### Here we calculate the distances based on a subset of the data by only including Mf samples.
 
 ```{bash,eval=F}
+cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses
 Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/Mf_Geo/sample_clusters.R
 sed 's/,/ /g' sample_clusters.csv > sample_clusters.txt
 rm -f sample_clusters.csv
@@ -2170,7 +2261,7 @@ Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysi
 **Need to ammend the sn and xl line manually based on outputs of "cat"**
 
 ```{bash}
-grep '##contig=<ID=ordered' PK_consensus_filtered_pass.vcf | sed 's/##contig=<ID=//g' | sed 's/,.*//g' > rehh_geo/chromosome.txt
+grep '##contig=<ID=ordered' PK_consensus_no_MOI.vcf| sed 's/##contig=<ID=//g' | sed 's/,.*//g' > rehh_geo/chromosome.txt
 
 cat sample_clusters.txt | awk '{print "-sn " $1}' | tr '\n' ' '
 
@@ -2179,9 +2270,10 @@ for i in $(cat rehh/chromosome.txt)
         java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
         -T SelectVariants \
         -R $FASTA/strain_A1_H.1.Icor.fasta \
-        -V PK_consensus_filtered_pass.vcf  \
+        -V PK_consensus_no_MOI.vcf \
         -L $i \
-        -sn ERR274221 -sn ERR274222 -sn ERR366426 -sn ERR985372 -sn ERR985373 -sn ERR985374 -sn ERR985375 -sn ERR985376 -sn ERR985377 -sn ERR985378 -sn ERR985379 -sn ERR985380 -sn ERR985381 -sn ERR985382 -sn ERR985383 -sn ERR985384 -sn ERR985385 -sn ERR985386 -sn ERR985387 -sn ERR985388 -sn ERR985389 -sn ERR985390 -sn ERR985391 -sn ERR985392 -sn ERR985393 -sn ERR985394 -sn ERR985395 -sn ERR985396 -sn ERR985397 -sn ERR985398 -sn ERR985399 -sn ERR985400 -sn ERR985401 -sn ERR985402 -sn ERR985403 -sn ERR985404 -sn ERR985405 -sn ERR985406 -sn ERR985407 -sn ERR985408 -sn ERR985409 -sn PK_SB_DNA_001_DKDL210002130-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_002_DKDL210002131-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_003_DKDL210002132-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_005_DKDL210002134-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_006_DKDL210002135-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_008_DKDL210002137-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_009_DKDL210002138-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_010_DKDL210002139-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_013_DKDL210002142-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_014_DKDL210002143-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_015_DKDL210002144-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_021_DKDL210002150-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_023_DKDL210002152-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_029_DKDL210002158-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_031_DKDL210002160-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_032_DKDL210002161-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_034_DKDL210002163-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_035_DKDL210002164-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_036_DKDL210002165-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_038_DKDL210002167-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_039_DKDL210002168-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_040_DKDL210002169-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_044_DKDL210002173-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_045_DKDL210002174-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_046_DKDL210002175-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_047_DKDL210002176-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_048_DKDL210002177-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_049_DKDL210002178-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_051_DKDL210002180-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_052_DKDL210002181-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_053_DKDL210002182-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_054_DKDL210002183-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_055_DKDL210002184-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_057_DKDL210002186-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_067_DKDL210002196-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_068_DKDL210002197-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_069_DKDL210002198-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_070_DKDL210002199-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_072_DKDL210002201-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_073_DKDL210002202-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_074_DKDL210002203-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_077_DKDL210002206-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_081_DKDL210002210-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_082_DKDL210002211-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_083_DKDL210002212-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_086_DKDL210002215-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_087_DKDL210002216-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_088_DKDL210002217-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_089_DKDL210002218-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_090_DKDL210002219-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_094_DKDL210002223-1a_HWHGKDSXY_L4 \
+        -sn ERR274221 -sn ERR274222 -sn ERR366426 -sn ERR985372 -sn ERR985373 -sn ERR985374 -sn ERR985375 -sn ERR985376 -sn ERR985377 -sn ERR985378 -sn ERR985379 -sn ERR985380 -sn ERR985381 -sn ERR985382 -sn ERR985383 -sn ERR985384 -sn ERR985385 -sn ERR985387 -sn ERR985388 -sn ERR985389 -sn ERR985390 -sn ERR985391 -sn ERR985392 -sn ERR985393 -sn ERR985394 -sn ERR985398 -sn ERR985399 -sn ERR985400 -sn ERR985401 -sn ERR985402 -sn ERR985403 -sn ERR985404 -sn ERR985406 -sn ERR985407 -sn ERR985408 -sn ERR985409 -sn PK_SB_DNA_001_DKDL210002130-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_002_DKDL210002131-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_003_DKDL210002132-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_005_DKDL210002134-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_008_DKDL210002137-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_009_DKDL210002138-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_010_DKDL210002139-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_013_DKDL210002142-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_014_DKDL210002143-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_015_DKDL210002144-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_021_DKDL210002150-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_023_DKDL210002152-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_029_DKDL210002158-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_031_DKDL210002160-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_034_DKDL210002163-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_035_DKDL210002164-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_036_DKDL210002165-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_038_DKDL210002167-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_040_DKDL210002169-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_044_DKDL210002173-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_045_DKDL210002174-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_046_DKDL210002175-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_047_DKDL210002176-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_049_DKDL210002178-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_052_DKDL210002181-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_053_DKDL210002182-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_054_DKDL210002183-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_057_DKDL210002186-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_067_DKDL210002196-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_068_DKDL210002197-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_069_DKDL210002198-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_070_DKDL210002199-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_072_DKDL210002201-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_073_DKDL210002202-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_074_DKDL210002203-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_077_DKDL210002206-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_081_DKDL210002210-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_082_DKDL210002211-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_086_DKDL210002215-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_087_DKDL210002216-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_088_DKDL210002217-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_089_DKDL210002218-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_090_DKDL210002219-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_094_DKDL210002223-1a_HWHGKDSXY_L4 \
+        -XL $REGIONS_TO_MASK \
         -o rehh_geo/${i}.vcf.gz
     done 
 
@@ -2189,6 +2281,8 @@ cat sample_clusters.txt | grep 'Sabah' | awk '{print "-sn " $1}' | tr '\n' ' '
 cat sample_clusters.txt | grep 'Sabah' | awk '{print "-xl_sn " $1}' | tr '\n' ' '
 
 cd rehh_geo
+mkdir Mf_plots
+mkdir Mn_plots
 ls *vcf.gz > vcf_list.txt
 
 for i in $(cat vcf_list.txt)
@@ -2197,7 +2291,8 @@ for i in $(cat vcf_list.txt)
         -T SelectVariants \
         -R $FASTA/strain_A1_H.1.Icor.fasta \
         -V $i \
-        -sn PK_SB_DNA_001_DKDL210002130-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_002_DKDL210002131-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_003_DKDL210002132-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_005_DKDL210002134-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_006_DKDL210002135-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_008_DKDL210002137-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_009_DKDL210002138-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_010_DKDL210002139-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_013_DKDL210002142-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_014_DKDL210002143-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_015_DKDL210002144-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_021_DKDL210002150-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_023_DKDL210002152-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_029_DKDL210002158-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_031_DKDL210002160-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_032_DKDL210002161-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_034_DKDL210002163-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_035_DKDL210002164-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_036_DKDL210002165-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_038_DKDL210002167-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_039_DKDL210002168-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_040_DKDL210002169-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_044_DKDL210002173-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_045_DKDL210002174-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_046_DKDL210002175-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_047_DKDL210002176-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_048_DKDL210002177-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_049_DKDL210002178-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_051_DKDL210002180-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_052_DKDL210002181-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_053_DKDL210002182-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_054_DKDL210002183-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_055_DKDL210002184-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_057_DKDL210002186-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_067_DKDL210002196-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_068_DKDL210002197-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_069_DKDL210002198-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_070_DKDL210002199-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_072_DKDL210002201-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_073_DKDL210002202-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_074_DKDL210002203-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_077_DKDL210002206-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_081_DKDL210002210-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_082_DKDL210002211-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_083_DKDL210002212-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_086_DKDL210002215-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_087_DKDL210002216-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_088_DKDL210002217-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_089_DKDL210002218-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_090_DKDL210002219-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_094_DKDL210002223-1a_HWHGKDSXY_L4 \
+        -sn PK_SB_DNA_001_DKDL210002130-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_002_DKDL210002131-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_003_DKDL210002132-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_005_DKDL210002134-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_008_DKDL210002137-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_009_DKDL210002138-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_010_DKDL210002139-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_013_DKDL210002142-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_014_DKDL210002143-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_015_DKDL210002144-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_021_DKDL210002150-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_023_DKDL210002152-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_029_DKDL210002158-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_031_DKDL210002160-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_034_DKDL210002163-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_035_DKDL210002164-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_036_DKDL210002165-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_038_DKDL210002167-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_040_DKDL210002169-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_044_DKDL210002173-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_045_DKDL210002174-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_046_DKDL210002175-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_047_DKDL210002176-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_049_DKDL210002178-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_052_DKDL210002181-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_053_DKDL210002182-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_054_DKDL210002183-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_057_DKDL210002186-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_067_DKDL210002196-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_068_DKDL210002197-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_069_DKDL210002198-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_070_DKDL210002199-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_072_DKDL210002201-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_073_DKDL210002202-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_074_DKDL210002203-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_077_DKDL210002206-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_081_DKDL210002210-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_082_DKDL210002211-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_086_DKDL210002215-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_087_DKDL210002216-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_088_DKDL210002217-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_089_DKDL210002218-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_090_DKDL210002219-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_094_DKDL210002223-1a_HWHGKDSXY_L4 \
+        -XL $REGIONS_TO_MASK \
         -o ${i%.vcf.gz}_Sabah.vcf.gz
     done
 
@@ -2207,14 +2302,14 @@ for i in $(cat vcf_list.txt)
         -T SelectVariants \
         -R $FASTA/strain_A1_H.1.Icor.fasta \
         -V $i \
-        -xl_sn PK_SB_DNA_001_DKDL210002130-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_002_DKDL210002131-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_003_DKDL210002132-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_005_DKDL210002134-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_006_DKDL210002135-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_008_DKDL210002137-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_009_DKDL210002138-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_010_DKDL210002139-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_013_DKDL210002142-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_014_DKDL210002143-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_015_DKDL210002144-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_021_DKDL210002150-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_023_DKDL210002152-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_029_DKDL210002158-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_031_DKDL210002160-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_032_DKDL210002161-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_034_DKDL210002163-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_035_DKDL210002164-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_036_DKDL210002165-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_038_DKDL210002167-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_039_DKDL210002168-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_040_DKDL210002169-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_044_DKDL210002173-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_045_DKDL210002174-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_046_DKDL210002175-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_047_DKDL210002176-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_048_DKDL210002177-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_049_DKDL210002178-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_051_DKDL210002180-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_052_DKDL210002181-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_053_DKDL210002182-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_054_DKDL210002183-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_055_DKDL210002184-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_057_DKDL210002186-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_067_DKDL210002196-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_068_DKDL210002197-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_069_DKDL210002198-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_070_DKDL210002199-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_072_DKDL210002201-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_073_DKDL210002202-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_074_DKDL210002203-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_077_DKDL210002206-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_081_DKDL210002210-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_082_DKDL210002211-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_083_DKDL210002212-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_086_DKDL210002215-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_087_DKDL210002216-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_088_DKDL210002217-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_089_DKDL210002218-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_090_DKDL210002219-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_094_DKDL210002223-1a_HWHGKDSXY_L4 \
+        -xl_sn PK_SB_DNA_001_DKDL210002130-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_002_DKDL210002131-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_003_DKDL210002132-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_005_DKDL210002134-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_008_DKDL210002137-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_009_DKDL210002138-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_010_DKDL210002139-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_013_DKDL210002142-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_014_DKDL210002143-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_015_DKDL210002144-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_021_DKDL210002150-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_023_DKDL210002152-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_029_DKDL210002158-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_031_DKDL210002160-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_034_DKDL210002163-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_035_DKDL210002164-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_036_DKDL210002165-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_038_DKDL210002167-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_040_DKDL210002169-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_044_DKDL210002173-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_045_DKDL210002174-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_046_DKDL210002175-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_047_DKDL210002176-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_049_DKDL210002178-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_052_DKDL210002181-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_053_DKDL210002182-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_054_DKDL210002183-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_057_DKDL210002186-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_067_DKDL210002196-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_068_DKDL210002197-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_069_DKDL210002198-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_070_DKDL210002199-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_072_DKDL210002201-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_073_DKDL210002202-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_074_DKDL210002203-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_077_DKDL210002206-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_081_DKDL210002210-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_082_DKDL210002211-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_086_DKDL210002215-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_087_DKDL210002216-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_088_DKDL210002217-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_089_DKDL210002218-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_090_DKDL210002219-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_094_DKDL210002223-1a_HWHGKDSXY_L4 \
+        -XL $REGIONS_TO_MASK \
         -o ${i%.vcf.gz}_Betong-Kapit-Sarikei.vcf.gz
     done
 
 
 Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/Mf_Geo/rehh.R
-mv *Sabah* Mf_plots/
-mv *Betong* Mf_plots/
+mv *vcf.gz* Mf_plots/
 ```
 
 
@@ -2260,7 +2355,7 @@ Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysi
 **Need to ammend the sn and xl line manually based on outputs of "cat"**
 
 ```{bash}
-grep '##contig=<ID=ordered' PK_consensus_filtered_pass.vcf | sed 's/##contig=<ID=//g' | sed 's/,.*//g' > rehh_geo/chromosome.txt
+grep '##contig=<ID=ordered' PK_consensus_no_MOI.vcf| sed 's/##contig=<ID=//g' | sed 's/,.*//g' > rehh_geo/chromosome.txt
 
 cat sample_clusters.txt | awk '{print "-sn " $1}' | tr '\n' ' '
 
@@ -2269,9 +2364,10 @@ for i in $(cat rehh/chromosome.txt)
         java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
         -T SelectVariants \
         -R $FASTA/strain_A1_H.1.Icor.fasta \
-        -V PK_consensus_filtered_pass.vcf  \
+        -V PK_consensus_no_MOI.vcf \
         -L $i \
-        -sn ERR2214837 -sn ERR2214838 -sn ERR2214839 -sn ERR2214840 -sn ERR2214841 -sn ERR2214842 -sn ERR2214843 -sn ERR2214844 -sn ERR2214845 -sn ERR2214846 -sn ERR2214847 -sn ERR2214848 -sn ERR2214849 -sn ERR2214850 -sn ERR2214851 -sn ERR2214852 -sn ERR2214853 -sn ERR2214854 -sn ERR2214855 -sn ERR2214856 -sn ERR2214857 -sn ERR274224 -sn ERR274225 -sn ERR366425 -sn ERR985410 -sn ERR985411 -sn ERR985412 -sn ERR985413 -sn ERR985415 -sn ERR985416 -sn ERR985417 -sn ERR985418 -sn ERR985419 -sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 \
+        -sn ERR2214837 -sn ERR2214838 -sn ERR2214839 -sn ERR2214840 -sn ERR2214841 -sn ERR2214842 -sn ERR2214843 -sn ERR2214844 -sn ERR2214845 -sn ERR2214846 -sn ERR2214847 -sn ERR2214848 -sn ERR2214849 -sn ERR2214851 -sn ERR2214852 -sn ERR2214853 -sn ERR2214854 -sn ERR2214855 -sn ERR2214857 -sn ERR274224 -sn ERR274225 -sn ERR366425 -sn ERR985411 -sn ERR985412 -sn ERR985413 -sn ERR985415 -sn ERR985416 -sn ERR985418 -sn ERR985419 -sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 \
+        -XL $REGIONS_TO_MASK \
         -o rehh_geo/${i}.vcf.gz
     done 
 
@@ -2287,7 +2383,8 @@ for i in $(cat vcf_list.txt)
         -T SelectVariants \
         -R $FASTA/strain_A1_H.1.Icor.fasta \
         -V $i \
-        -sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 \
+        -sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 \
+        -XL $REGIONS_TO_MASK \
         -o ${i%.vcf.gz}_Sabah.vcf.gz
     done
 
@@ -2297,13 +2394,15 @@ for i in $(cat vcf_list.txt)
         -T SelectVariants \
         -R $FASTA/strain_A1_H.1.Icor.fasta \
         -V $i \
-        -xl_sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 \
+        -xl_sn PK_SB_DNA_011_DKDL210002140-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_016_DKDL210002145-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_030_DKDL210002159-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_043_DKDL210002172-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_091_DKDL210002220-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_092_DKDL210002221-1a_HWHGKDSXY_L4 -xl_sn PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4 \
+        -XL $REGIONS_TO_MASK \
         -o ${i%.vcf.gz}_Betong-Kapit-Sarikei.vcf.gz
     done
 
 
-Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/Mf_Geo/rehh.R
-rm *vcf*
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/Mn_Geo/rehh.R
+
+mv *vcf.gz* Mn_plots/
 ```
 
 

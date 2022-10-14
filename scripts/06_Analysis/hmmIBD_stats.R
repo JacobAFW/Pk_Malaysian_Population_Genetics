@@ -67,8 +67,8 @@ library(data.table)
         e22 <- IBD[, label.cols2] == label2
         
         pairwise.matrix[i, j] <-
-          statistic(IBD[(e11 &
-                           e22) | (e12 & e21), "fract_sites_IBD"]) 
+          statistic(IBD[(e11 & 
+                            e22) | (e12 & e21), "fract_sites_IBD"]) 
       }
     }
     

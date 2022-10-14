@@ -8,7 +8,7 @@ library(data.table)
 
 read_tsv("hmmIBD/grep_patterns.tsv", col_names = c("CHROM", "POS")) %>%
         left_join(
-                read_table("PK_consensus_filtered_pass.vcf", skip = 86) %>%
+                read_table("PK_consensus_no_MOI.vcf", skip = 87) %>%
                 rename("CHROM" = `#CHROM`) # this first section selects only variants that passed the PLINK filters we applied
         ) %>%
         mutate(CHROM = str_remove(CHROM, "ordered_PKNH_"),

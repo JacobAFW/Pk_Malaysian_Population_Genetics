@@ -31,7 +31,7 @@ pve_plot <- data.frame(PC = 1:20, pve = eigenval/sum(eigenval)*100) %>%
     ylab("Percentage variance explained") + 
     theme_light()
 
-ggsave("hmmIBD_Mn_Geo/Percentage_variance_explained.png", dpi=600, pve_plot)
+ggsave("Mn_plots/Percentage_variance_explained.png", dpi=600, pve_plot)
 
 
 ## PCA
@@ -46,7 +46,7 @@ pca_plot <- ggplot(pca, aes(PC1, PC2, colour = Location)) +
     ylab(paste0("PC2 (", signif(pve$pve[2], 3), "%)")) +
     xlim(-0.2, 0.2)
 
-ggsave("hmmIBD_Mn_Geo/PCA.png", dpi = 600, pca_plot)
+ggsave("Mn_plots/PCA.png", dpi = 600, pca_plot)
 
 
 # MDS 
@@ -74,7 +74,7 @@ mds_plot <- ggplot(mds, aes(MDS1, MDS2, colour = Location)) +
     coord_equal() + 
     theme_light()
 
-ggsave("hmmIBD_Mn_Geo/MDS.png", dpi=600, mds_plot)
+ggsave("Mn_plots/MDS.png", dpi=600, mds_plot)
 
 # Neighbour-joining tree
 
@@ -113,7 +113,7 @@ NJT_tree_plot <- ggtree(NJT_tree, layout="circular", size = 0.5, aes(colour = Lo
         legend.key = element_blank()) +
     scale_color_manual(values = c("#440154FF", "#39568CFF", "#73D055FF", "#DCE319FF"))
     
-ggsave("hmmIBD_Mn_Geo/NJT_tree_cluster_rooted.png", dpi = 600, height = 8, width = 16, NJT_tree_plot)
+ggsave("Mn_plots/NJT_tree_cluster_rooted.png", dpi = 600, height = 8, width = 16, NJT_tree_plot)
 
 NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = Location)) %<+% NJT_metadata +
     theme(legend.position = "right", 
@@ -121,7 +121,7 @@ NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = Lo
         legend.key = element_blank()) +
     scale_color_manual(values = c("#440154FF", "#39568CFF", "#73D055FF", "#DCE319FF"))
     
-ggsave("hmmIBD_Mn_Geo/NJT_tree_cluster_unrooted.png", dpi = 600, height = 15, width = 15, limitsize = FALSE, NJT_tree_plot)
+ggsave("Mn_plots/NJT_tree_cluster_unrooted.png", dpi = 600, height = 15, width = 15, limitsize = FALSE, NJT_tree_plot)
 
 #Labels
 NJT_tree_plot <- ggtree(NJT_tree, layout="circular", size = 0.5, aes(colour = Location)) %<+% NJT_metadata +
@@ -131,4 +131,4 @@ NJT_tree_plot <- ggtree(NJT_tree, layout="circular", size = 0.5, aes(colour = Lo
    geom_tiplab(size = 2) +
     scale_color_manual(values = c("#440154FF", "#39568CFF", "#73D055FF", "#DCE319FF"))
     
-ggsave("hmmIBD_Mn_Geo/NJT_tree_labelled_rooted.png", dpi = 600, height = 20, width = 20, limitsize = FALSE, NJT_tree_plot)
+ggsave("Mn_plots/NJT_tree_labelled_rooted.png", dpi = 600, height = 20, width = 20, limitsize = FALSE, NJT_tree_plot)
