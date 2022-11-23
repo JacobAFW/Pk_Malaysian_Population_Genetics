@@ -350,6 +350,40 @@ metadata <- metadata2 %>%
 Pk.IBD.file <- "Pk_Mf.hmm_fract.txt"
 Pk.IBD <- read.delim(Pk.IBD.file)
 
+# Plot Fraction of sites that are IBD
+IBD_meta_combined <- Pk.IBD %>%
+    as.data.frame() %>%
+    select(sample1, sample2, fract_sites_IBD) %>%
+    left_join(
+      metadata %>%
+        rename(sample1 = Sample) %>%
+        rename(cluster1 = Cluster) %>%
+        rename(location1 = Location),
+      by = "sample1"
+    ) %>% 
+    left_join(
+      metadata %>%
+        rename(sample2 = Sample) %>%
+        rename(cluster2 = Cluster) %>%
+        rename(location2 = Location),
+      by = "sample2" 
+    )
+
+## Fraction IBD within and between locations
+IBD_fract_plot <- IBD_meta_combined %>%
+  unite("Clusters", c("location1", "location2"), sep = "-") %>% 
+  ggplot(aes(x = Clusters, y = fract_sites_IBD, colour = Clusters)) +
+  geom_boxplot() +
+  theme(legend.position = "none", 
+    legend.title = element_blank(), 
+    panel.border = element_rect(colour = "black", fill = NA, size = 1)) +
+  coord_flip() +
+  scale_color_viridis_d() +
+  ylab("Fraction of IBD sites")
+
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD_geo_clusters/fract_IBD_locations_Mf.png", dpi = 300, IBD_fract_plot)
+
+
 # Base plots
 Pk.label.cols <- c("Geo_cluster")
 Pk.legend.titles <- list("Geo_cluster" = "Geo_cluster")
@@ -387,6 +421,39 @@ plot.IBD(
 #Mn
 Pk.IBD.file <- "Pk_Mn.hmm_fract.txt"
 Pk.IBD <- read.delim(Pk.IBD.file)
+
+# Plot Fraction of sites that are IBD
+IBD_meta_combined <- Pk.IBD %>%
+    as.data.frame() %>%
+    select(sample1, sample2, fract_sites_IBD) %>%
+    left_join(
+      metadata %>%
+        rename(sample1 = Sample) %>%
+        rename(cluster1 = Cluster) %>%
+        rename(location1 = Location),
+      by = "sample1" 
+    ) %>% 
+    left_join(
+      metadata %>%
+        rename(sample2 = Sample) %>%
+        rename(cluster2 = Cluster) %>%
+        rename(location2 = Location),
+      by = "sample2" 
+    )
+
+## Fraction IBD within and between locations
+IBD_fract_plot <- IBD_meta_combined %>%
+  unite("Clusters", c("location1", "location2"), sep = "-") %>% 
+  ggplot(aes(x = Clusters, y = fract_sites_IBD, colour = Clusters)) +
+  geom_boxplot() +
+  theme(legend.position = "none", 
+    legend.title = element_blank(), 
+    panel.border = element_rect(colour = "black", fill = NA, size = 1)) +
+  coord_flip() +
+  scale_color_viridis_d() +
+  ylab("Fraction of IBD sites")
+
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD_geo_clusters/fract_IBD_locations_Mn.png", dpi = 300, IBD_fract_plot)
 
 # Base plots
 Pk.label.cols <- c("Geo_cluster")

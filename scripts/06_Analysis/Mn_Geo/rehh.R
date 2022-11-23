@@ -25,7 +25,7 @@ for(i in chromsomes_files) {
     hh <- data2haplohh(hap_file = hap_file, 
                     chr.name = i, 
                     polarize_vcf = FALSE, # if the AA key is absent
-                    min_perc_geno.mrk = 50, # discard markers genotyped on < 50% of haplotypes
+                    min_perc_geno.mrk = 100, # discard markers genotyped on < 100% of haplotypes
                     min_maf = 0.05, # discard markers with a minor allele frequency of < 0.05)
                     vcf_reader = "data.table") # use this package
     scan <- scan_hh(hh) # perform scan on a single chromosome (calculate iHH/iES values)
@@ -57,8 +57,8 @@ wgs_ihs_2$ihs <- wgs_ihs_2$ihs %>%
 candidate_regions <- calc_candidate_regions(wgs_ihs_2,
                                  threshold = 4,
                                  pval = TRUE,
-                                 window_size = 1000,
-                                 overlap = 100,
+                                 window_size = 10000,
+                                 overlap = 1000,
                                  min_n_extr_mrk = 3) %>%
                                  add_column(Stat = "iHS") 
 
@@ -132,7 +132,7 @@ for(i in chromsomes_files) {
     hh <- data2haplohh(hap_file = hap_file, 
                     chr.name = i, 
                     polarize_vcf = FALSE, # if the AA key is absent
-                    min_perc_geno.mrk = 25, # discard markers genotyped on < 25% of haplotypes
+                    min_perc_geno.mrk = 100, # discard markers genotyped on < 100% of haplotypes
                     min_maf = 0.05, # discard markers with a minor allele frequency of < 0.05)
                     vcf_reader = "data.table") # use this package
     scan <- scan_hh(hh) # perform scan on a single chromosome (calculate iHH/iES values)
@@ -150,7 +150,7 @@ for(i in chromsomes_files) {
     hh <- data2haplohh(hap_file = hap_file, 
                     chr.name = i, 
                     polarize_vcf = FALSE, # if the AA key is absent
-                    min_perc_geno.mrk = 50, # discard markers genotyped on < 50% of haplotypes
+                    min_perc_geno.mrk = 100, # discard markers genotyped on < 100% of haplotypes
                     min_maf = 0.05, # discard markers with a minor allele frequency of < 0.05)
                     vcf_reader = "data.table") # use this package
     scan <- scan_hh(hh) # perform scan on a single chromosome (calculate iHH/iES values)
@@ -178,8 +178,8 @@ XP_EHH <- ies2xpehh(
 candidate_regions_Rsb <- calc_candidate_regions(Rsb,
                                  threshold = 4,
                                  pval = TRUE,
-                                 window_size = 1000,
-                                 overlap = 100,
+                                 window_size = 10000,
+                                 overlap = 1000,
                                  min_n_extr_mrk = 3) %>%
                                  add_column(Stat = "Rsb")
 

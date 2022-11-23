@@ -1,0 +1,144 @@
+# Required tools/libraries for Analyses
+
+```{bash}
+module load bcftools/1.12
+module load java/jdk-8.40 
+module load R/4.1.0 
+export R_LIBS_USER="/g/data/pq84/R"
+export PATH=$PATH:/g/data/pq84/bin/plink2/
+
+FASTA="/g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/data/ref_genomes/PKA1H1/fasta"
+VCF="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/filtered/"
+GATK="/g/data/pq84/bin/GenomeAnalysisTK-3.8-1-0/GenomeAnalysisTK.jar"
+REGIONS_TO_MASK="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/regions_to_mask.list"
+
+cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses
+```
+
+Need to create an include_samples.txt file to subset to samples for MAF
+
+
+
+
+```{bash,eval=F}
+bcftools view PK_consensus_filtered_pass.vcf | \
+  sed 's/AD,Number=R/AD,Number=./' | \
+  bcftools norm -m-any | \
+  bcftools norm --check-ref w -f $FASTA/strain_A1_H.1.Icor.fasta | \
+  bcftools annotate -Ob -x ID -I +'%CHROM:%POS:%REF:%ALT:%ID' \
+  > PK_consensus_filtered_pass.bcf
+
+bcftools view PK_consensus_filtered_pass.bcf | sed -n '/#CHROM/,$p' | head -n 1 | tr '\t' '\n' |  sed -n '/ERR2214837/,$p' | awk '{print $1 "\t" $1}' > sample_order.txt
+
+plink --bcf PK_consensus_filtered_pass.bcf \
+  --keep-allele-order \
+  --vcf-idspace-to _ \
+  --double-id \
+  --allow-extra-chr 0 \
+  --make-bed \
+  --indiv-sort file sample_order.txt \
+  --allow-no-sex \
+  --out Pk
+
+sed 's/ /,/g' Pk.fam > Pk.csv
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/pheno_to_plink_fam.R
+sed 's/,/ /g' Pk.csv > Pk.fam
+cut -f 2 Pk.bim | sort | uniq -d > Pk.dups
+```
+
+# Generate MAF matrices 
+Need to change contents of include samples file to get sample-specific data that can then be read into R
+
+## High Fws Sample
+```{bash,eval=F}
+grep 'PK_SB_DNA_006_DKDL210002135-1a_HWHGKDSXY_L4' Pk.fam > include_samples.txt
+
+plink --file Pk --keep include_samples.txt --make-bed --out Fws
+
+plink --bfile Fws \
+  --freq 'counts' \
+  --allow-no-sex \
+  --out MAF-Fws_plots/high
+```
+
+## Low Fws sample
+
+```{bash,eval=F}
+grep 'PK_SB_DNA_069_DKDL210002198-1a_HWHGKDSXY_L4' Pk.fam > include_samples.txt
+
+plink --file Pk --keep include_samples.txt --make-bed --out Fws
+
+plink --bfile Fws \
+  --freq \
+  --allow-no-sex \
+  --out MAF-Fws_plots/low
+```
+
+## No Fws sample
+
+```{bash,eval=F}
+grep 'PK_SB_DNA_064_DKDL210002193-1a_HWHGKDSXY_L4' Pk.fam > include_samples.txt
+
+plink --file Pk --keep include_samples.txt --make-bed --out test
+
+plink --bfile Fws \
+  --freq \
+  --allow-no-sex \
+  --out MAF-Fws_plots/no
+
+cd MAF-Fws_plots
+```
+
+```{R,eval=F}
+library(tidyverse)
+
+# Read in MAF values
+high_maf <- read_table("high.frq", col_names=T) %>%
+    mutate(CHR = str_remove(SNP, ":.*")) %>%
+    na.omit() %>%
+    mutate(CHR = str_remove(CHR, "ordered_PKNH_")) %>%
+    mutate(CHR = str_remove(CHR, "_v2")) %>%
+    mutate(SNP = str_remove(SNP, ".*v2:")) %>%
+    mutate(SNP = str_remove(SNP, ":.*")) %>%
+    mutate_at(vars(CHR, SNP), ~as.numeric(.)) %>%
+    arrange(CHR)
+
+low_maf <- read_table("low.frq", col_names=T) %>%
+    mutate(CHR = str_remove(SNP, ":.*")) %>%
+    na.omit() %>%
+    mutate(CHR = str_remove(CHR, "ordered_PKNH_")) %>%
+    mutate(CHR = str_remove(CHR, "_v2")) %>%
+    mutate(SNP = str_remove(SNP, ".*v2:")) %>%
+    mutate(SNP = str_remove(SNP, ":.*")) %>%
+    mutate_at(vars(CHR, SNP), ~as.numeric(.)) %>%
+    arrange(CHR)
+
+no_maf <- read_table("no.frq", col_names=T) %>%
+    mutate(CHR = str_remove(SNP, ":.*")) %>%
+    na.omit() %>%
+    mutate(CHR = str_remove(CHR, "ordered_PKNH_")) %>%
+    mutate(CHR = str_remove(CHR, "_v2")) %>%
+    mutate(SNP = str_remove(SNP, ".*v2:")) %>%
+    mutate(SNP = str_remove(SNP, ":.*")) %>%
+    mutate_at(vars(CHR, SNP), ~as.numeric(.)) %>%
+    arrange(CHR)
+
+# Read in Fws 
+fws_pk <- read_tsv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/without_masking/moimix/fws_MOI.tsv") %>%
+    arrange(Proportion) %>%
+    mutate(MOI = ifelse(Proportion >= 0.98, "No",
+        ifelse(Proportion < 0.98 & Proportion > 0.85, "Low", "High"))) 
+
+
+# Plot
+high_maf_plot <- high_maf %>%
+    ggplot(aes(x = SNP, y = MAF, colour = CHR)) +
+    geom_point() +
+    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) 
+
+ggsave("high_maf.png", dpi = 600, width = 14, high_maf_plot)
+
+
+
+
+```

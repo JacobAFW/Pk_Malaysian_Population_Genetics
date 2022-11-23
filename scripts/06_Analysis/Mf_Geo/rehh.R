@@ -25,7 +25,7 @@ for(i in chromsomes_files) {
     hh <- data2haplohh(hap_file = hap_file, 
                     chr.name = i, 
                     polarize_vcf = FALSE, # if the AA key is absent
-                    min_perc_geno.mrk = 50, # discard markers genotyped on < 50% of haplotypes
+                    min_perc_geno.mrk = 100, # discard markers genotyped on < 50% of haplotypes
                     min_maf = 0.05, # discard markers with a minor allele frequency of < 0.05)
                     vcf_reader = "data.table") # use this package
     scan <- scan_hh(hh) # perform scan on a single chromosome (calculate iHH/iES values)
@@ -55,10 +55,10 @@ wgs_ihs_2$ihs <- wgs_ihs_2$ihs %>%
     as.data.frame()
 
 candidate_regions <- calc_candidate_regions(wgs_ihs_2,
-                                 threshold = 5,
+                                 threshold = 4,
                                  pval = TRUE,
-                                 window_size = 1000,
-                                 overlap = 100,
+                                 window_size = 10000,
+                                 overlap = 1000,
                                  min_n_extr_mrk = 3) %>%
                                  add_column(Stat = "iHS") 
 
@@ -132,7 +132,7 @@ for(i in chromsomes_files) {
     hh <- data2haplohh(hap_file = hap_file, 
                     chr.name = i, 
                     polarize_vcf = FALSE, # if the AA key is absent
-                    min_perc_geno.mrk = 25, # discard markers genotyped on < 25% of haplotypes
+                    min_perc_geno.mrk = 100, # discard markers genotyped on < 100% of haplotypes
                     min_maf = 0.05, # discard markers with a minor allele frequency of < 0.05)
                     vcf_reader = "data.table") # use this package
     scan <- scan_hh(hh) # perform scan on a single chromosome (calculate iHH/iES values)
@@ -150,7 +150,7 @@ for(i in chromsomes_files) {
     hh <- data2haplohh(hap_file = hap_file, 
                     chr.name = i, 
                     polarize_vcf = FALSE, # if the AA key is absent
-                    min_perc_geno.mrk = 50, # discard markers genotyped on < 50% of haplotypes
+                    min_perc_geno.mrk = 100, # discard markers genotyped on < 100% of haplotypes
                     min_maf = 0.05, # discard markers with a minor allele frequency of < 0.05)
                     vcf_reader = "data.table") # use this package
     scan <- scan_hh(hh) # perform scan on a single chromosome (calculate iHH/iES values)
@@ -176,18 +176,18 @@ XP_EHH <- ies2xpehh(
 
 # Scan for candidate regions 
 candidate_regions_Rsb <- calc_candidate_regions(Rsb,
-                                 threshold = 5,
+                                 threshold = 4,
                                  pval = TRUE,
-                                 window_size = 1000,
-                                 overlap = 100,
+                                 window_size = 10000,
+                                 overlap = 1000,
                                  min_n_extr_mrk = 3) %>%
                                  add_column(Stat = "Rsb")
 
 candidate_regions_XP_EHH <- calc_candidate_regions(XP_EHH,
-                                 threshold = 5,
+                                 threshold = 4,
                                  pval = TRUE,
-                                 window_size = 1000,
-                                 overlap = 100,
+                                 window_size = 10000,
+                                 overlap = 1000,
                                  min_n_extr_mrk = 3) %>%
                                  add_column(Stat = "XP_EHH")
 
@@ -273,3 +273,87 @@ Rsb_XP_comaprison <- Rsb %>%
 
 ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/rehh_geo/Mf_plots/XP_Rsb_comparison.png", dpi = 600, width = 10, Rsb_XP_comaprison)
 
+## QQ-Plot
+png('/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/rehh_geo/Mf_plots/Rsb_QQ.png')
+as.data.frame(na.omit(Rsb))$RSB_Sabah_Betong_Kapit_Sarikei %>%
+    distribplot(., 
+            xlab = "Rsb", 
+            qqplot = TRUE)
+dev.off()
+
+## QQ-Plot
+png('/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/rehh_geo/Mf_plots/iHS_QQ.png')
+distribplot(wgs_ihs$ihs$IHS, 
+            xlab = "iHS", 
+            qqplot = TRUE)
+dev.off()
+
+#######################################################################################
+# Compare to SNP density 
+
+# Read in SNP data (PLINK file)
+snp_data <- read_table("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk.bim", col_names = F) %>%
+    select(X2) %>%
+    separate(X2, into = c("Contig", "Pos", "Major", "Minor", "Nothing"), sep = ":") %>%
+    mutate(Pos = as.numeric(Pos)) %>%
+    select(1:2) %>%
+    arrange(Contig, Pos)
+
+# Join SNP and iHS data
+window_size <- 1000
+SNP_iHS <- wgs_ihs$ihs %>%
+    rename(Pos = POSITION ) %>%
+    mutate(Window = (floor(Pos/window_size) * window_size)+ (window_size/2)) %>% 
+    select(CHR, Pos, IHS, LOGPVALUE, Window) %>% 
+    rename(Contig = CHR) %>% 
+    rename(p = LOGPVALUE) %>% 
+    group_by(Contig, Window) %>%
+    summarise(iHS = mean(IHS), p = mean(p)) %>%
+    left_join(
+        snp_data %>%
+            mutate(Window = (floor(Pos/window_size) * window_size)+ (window_size/2)) %>%
+            group_by(Contig, Window) %>%
+            summarise(SNPs = n()) 
+    ) %>%
+    left_join(
+        Rsb %>% 
+            na.omit() %>%
+            rename(Contig = CHR) %>%
+            rename(Pos = POSITION) %>% 
+            rename(Rsb_p = LOGPVALUE) %>% 
+            rename(Rsb = RSB_Sabah_Betong_Kapit_Sarikei) %>% 
+            mutate(Window = (floor(Pos/window_size) * window_size)+ (window_size/2)) %>%
+            group_by(Contig, Window) %>%
+            summarise(Rsb = mean(Rsb), Rsb_p = mean(Rsb_p))
+    )
+
+SNP_iHS_plot <- SNP_iHS %>% 
+    arrange(SNPs) %>%
+    ggplot(aes(x = SNPs, y = iHS)) +
+    geom_point(aes(colour = Contig)) +
+    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), legend.position = "none") +
+    stat_smooth(method = "lm") +
+    facet_wrap(~Contig)
+
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/rehh_geo/Mf_plots/iHS_vs_SNPs.png", dpi = 600, width = 10, SNP_iHS_plot)
+
+SNP_Rsb_plot <- SNP_iHS %>% 
+    na.omit() %>%
+    arrange(SNPs) %>%
+    ggplot(aes(x = SNPs, y = Rsb)) +
+    geom_point(aes(colour = Contig)) +
+    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), legend.position = "none") +
+    stat_smooth(method = "lm") +
+    facet_wrap(~Contig)
+
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/rehh_geo/Mf_plots/Rsb_vs_SNPs.png", dpi = 600, width = 10, SNP_Rsb_plot)
+
+
+
+
+SNP_iHS_plot <- SNP_iHS  %>%
+    ggplot() +
+    geom_line(aes(x = Window, y = iHS, colour = Contig)) + 
+    geom_line(aes(x = Window, y = SNPs, colour = Contig)) +
+    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), legend.position = "none") +
+    facet_wrap(~Contig)

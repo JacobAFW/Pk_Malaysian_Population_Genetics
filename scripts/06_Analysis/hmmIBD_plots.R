@@ -331,6 +331,51 @@ metadata <- metadata %>%
                                 grepl("PK_SB_DNA_063", Sample), "Mn", .$Cluster)) %>% # if not, just use values from X7 - clusters and Sabah
     mutate(Cluster = ifelse(Cluster == "Sabah", "Mf", .$Cluster)) # if its the remaining Sabah samples, make them Mn, else keep them the same
 
+# Plot Fraction of sites that are IBD
+IBD_meta_combined <- Pk.IBD %>%
+    as.data.frame() %>%
+    select(sample1, sample2, fract_sites_IBD) %>%
+    left_join(
+      metadata %>%
+        rename(sample1 = Sample) %>%
+        rename(cluster1 = Cluster) %>%
+        rename(location1 = Location)
+    ) %>% 
+    left_join(
+      metadata %>%
+        rename(sample2 = Sample) %>%
+        rename(cluster2 = Cluster) %>%
+        rename(location2 = Location)
+    )
+  
+## Fraction IBD within and between clusters
+IBD_fract_plot <- IBD_meta_combined %>%
+  unite("Clusters", c("cluster1", "cluster2"), sep = "-") %>% 
+  ggplot(aes(x = Clusters, y = fract_sites_IBD, colour = Clusters)) +
+  geom_boxplot() +
+  theme(legend.position = "none", 
+    legend.title = element_blank(), 
+    panel.border = element_rect(colour = "black", fill = NA, size = 1)) +
+  coord_flip() +
+  scale_color_viridis_d() +
+  ylab("Fraction of IBD sites")
+
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD/fract_IBD_clusters.png", dpi = 300, IBD_fract_plot)
+
+## Fraction IBD within and between locations
+IBD_fract_plot <- IBD_meta_combined %>%
+  unite("Clusters", c("location1", "location2"), sep = "-") %>% 
+  ggplot(aes(x = Clusters, y = fract_sites_IBD, colour = Clusters)) +
+  geom_boxplot() +
+  theme(legend.position = "none", 
+    legend.title = element_blank(), 
+    panel.border = element_rect(colour = "black", fill = NA, size = 1)) +
+  coord_flip() +
+  scale_color_viridis_d() +
+  ylab("Fraction of IBD sites")
+
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD/fract_IBD_locations.png", height = 20, dpi = 300, IBD_fract_plot)
+
 
 # Base plots
 Pk.label.cols <- c("Cluster")

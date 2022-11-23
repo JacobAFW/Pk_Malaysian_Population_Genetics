@@ -24,3 +24,29 @@ Fst_plot_window <- Fst_matrix %>%
     geom_hline(yintercept = 0.4, colour = "#1F968BFF")
 
 ggsave("Pk_Mn_vs_Mf/Fst_sliding_window_plot.png", dpi = 600, width = 14, Fst_plot_window)
+
+
+Fst_plot <- Fst_matrix %>%
+    filter(FST != "nan") %>%
+    mutate(FST = as.numeric(FST)) %>%
+    ggplot(aes(x = POS, y = FST, colour = CHR)) +
+    geom_point() +
+    facet_wrap(~CHR) +
+    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), legend.position = "none") +
+    ylab("Fst") +
+    xlab("Windows (10000)")  +
+    scale_color_viridis_d("Chr") 
+
+Fst_plot <- Fst_matrix %>%
+    filter(FST != "nan") %>%
+    filter(CHR == "14") %>%
+    mutate(FST = as.numeric(FST)) %>%
+    ggplot(aes(x = POS, y = FST)) +
+    geom_point() +
+    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), legend.position = "none") +
+    ylab("Fst") +
+    xlab("SNPs")  +
+    scale_color_viridis_d("Chr") 
+
+ggsave("Pk_Mn_vs_Mf/Fst_manhattan_14.png", dpi = 600, width = 14, Fst_plot)
+
