@@ -5,7 +5,7 @@ Fst_matrix <- read_table("Pk.fst", col_names=T) %>%
     mutate(CHR = str_remove(CHR, "_v2.*"))
 
 # Sliding window
-window_size <- 10000
+window_size <- 500
 
 Fst_plot_window <- Fst_matrix %>%
     filter(FST != "nan") %>%
@@ -24,6 +24,25 @@ Fst_plot_window <- Fst_matrix %>%
     #geom_hline(yintercept = 0.4, colour = "#1F968BFF")
 
 ggsave("Mn_plots/Fst_sliding_window_plot.png", dpi = 600, width = 14, Fst_plot_window)
+
+Fst_plot_window <- Fst_matrix %>%
+    filter(FST != "nan") %>%
+    mutate(FST = as.numeric(FST)) %>%
+    mutate(Window = (floor(POS/window_size) * window_size)+ (window_size/2)) %>%
+    group_by(CHR, Window) %>%
+    summarise(Window_Fst = mean(FST), count = n()) %>% # caculate the mean Fst for each window in each chr
+    filter(count > 2) %>% # remove windows with low counts
+    add_column(ROW = 1:nrow(.)) %>%
+    ggplot(aes(x = ROW, y = Window_Fst, colour = CHR)) +
+    geom_point() +
+    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), legend.position = "bottom") +
+    ylab("Fst") +
+    xlab("Genome")  +
+    scale_color_viridis_d("Chr") +
+    ylim(-.01, 1.2) +
+    guides(color=guide_legend(nrow=1, byrow=TRUE)) 
+
+ggsave("Mn_plots/Fst_sliding_window_plot_full_genome.png", dpi = 600, width = 14, Fst_plot_window)
 
 Fst_plot <- Fst_matrix %>%
     filter(FST > 0) %>%

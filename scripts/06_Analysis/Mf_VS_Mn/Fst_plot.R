@@ -20,8 +20,7 @@ Fst_plot_window <- Fst_matrix %>%
     theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), legend.position = "none") +
     ylab("Fst") +
     xlab("Windows (10000)")  +
-    scale_color_viridis_d("Chr") +
-    geom_hline(yintercept = 0.4, colour = "#1F968BFF")
+    scale_color_viridis_d("Chr") 
 
 ggsave("Pk_Mn_vs_Mf/Fst_sliding_window_plot.png", dpi = 600, width = 14, Fst_plot_window)
 
@@ -29,6 +28,7 @@ ggsave("Pk_Mn_vs_Mf/Fst_sliding_window_plot.png", dpi = 600, width = 14, Fst_plo
 Fst_plot <- Fst_matrix %>%
     filter(FST != "nan") %>%
     mutate(FST = as.numeric(FST)) %>%
+    filter(FST > 0) %>%
     ggplot(aes(x = POS, y = FST, colour = CHR)) +
     geom_point() +
     facet_wrap(~CHR) +
@@ -36,6 +36,24 @@ Fst_plot <- Fst_matrix %>%
     ylab("Fst") +
     xlab("Windows (10000)")  +
     scale_color_viridis_d("Chr") 
+
+ggsave("Pk_Mn_vs_Mf/Fst_manhattan.png", dpi = 600, width = 20, Fst_plot)
+
+Fst_plot <- Fst_matrix %>%
+    filter(FST != "nan") %>%
+    mutate(FST = as.numeric(FST)) %>%
+    arrange(CHR, POS) %>%
+    add_column(ROW = 1:nrow(.)) %>%
+    filter(FST > 0) %>%
+    ggplot(aes(x = ROW, y = FST, colour = CHR)) +
+    geom_point() +
+    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), legend.position = "bottom") +
+    ylab("Fst") +
+    xlab("Genome")  +
+    scale_color_viridis_d("Chr") +
+    guides(color=guide_legend(nrow=1, byrow=TRUE)) 
+
+ggsave("Pk_Mn_vs_Mf/Fst_manhattan_whole_genome.png", dpi = 600, width = 20, Fst_plot)
 
 Fst_plot <- Fst_matrix %>%
     filter(FST != "nan") %>%

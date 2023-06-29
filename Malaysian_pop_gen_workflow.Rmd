@@ -700,13 +700,11 @@ echo "Create R and PBS scripts to wrangle each chromosome"
 cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/04_Variant_calling/Consensus/
 
 for i in $(cat chromosomes.txt)
-do
-sed s/CHROMOSOME/$i/g vcf_wrangle_2.R > ${i}.R
+  do sed s/CHROMOSOME/$i/g vcf_wrangle_2.R > ${i}.R
 done
     
 for i in $(cat chromosomes.txt)
-do
-sed s/CHROMOSOME/$i/g consensus_vcf_2.pbs > ${i}_chr.pbs
+  do sed s/CHROMOSOME/$i/g consensus_vcf_2.pbs > ${i}_chr.pbs
 done
 
 
@@ -1156,7 +1154,7 @@ java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
 echo "---------------------------------------"
 echo 'Clean up'
 echo "---------------------------------------"
-rm -f Consensus_fixed.vcf
+rm -f Consensus_fixed.vcf*
 
 echo "---------------------------------------"
 echo "Finsihed"

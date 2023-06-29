@@ -93,7 +93,7 @@ Steps:
 
 **NB.** Clean up VCF.
 Add annotation to the ID column of your VCF file and subset to only biallelic site (assumption of moimix).
-bcftools view PK_consensus_no_MOI.vcf-M2 | bcftools annotate --threads 10 --set-id +'%CHROM\_%POS\_%REF\_%FIRST_ALT' - > moimix/PK_consensus_biallelic.vcf
+bcftools view PK_consensus_no_MOI.vcf -M2 | bcftools annotate --threads 10 --set-id +'%CHROM\_%POS\_%REF\_%FIRST_ALT' - > moimix/PK_consensus_biallelic.vcf
 
 
 
@@ -261,6 +261,12 @@ fws_all <- fws_all %>%
                                 grepl("PK_SB_DNA_063", Sample), "Mn", .$Cluster)) %>% # if not, just use values from Cluster
     mutate(Cluster = ifelse(Cluster == "Sabah", "Mf", .$Cluster))
 
+# Summary 
+fws_all %>%
+  group_by(Cluster) %>%
+  summarise(Count = n(), Mean = mean(Proportion), Below_95 = sum(Proportion <= .95), Below_85 = sum(Proportion <= .85))
+
+
 
 # Boxplot and point-plot by location
 fws_plot <- fws_all %>%
@@ -279,11 +285,11 @@ fws_plot <- fws_all %>%
   geom_boxplot() +
   geom_point(aes(colour = Cluster)) +
   geom_line(aes(colour = Cluster)) +
-  scale_color_viridis_d() +
+  scale_colour_manual(values = c("#440154FF", "#73D055FF", "#39568CFF")) +
   theme(legend.position = "none") +
   xlab("Fws")
 
-ggsave("moimix/fws_cluster_boxplot.png", width = 8, fws_plot)
+ggsave("moimix/fws_cluster_boxplot.png", width = 6, height = 8, dpi = 600, fws_plot)
 ```
 
 ## Exclude samples with high MOI
@@ -738,7 +744,7 @@ NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = Cl
     theme(legend.position = "right", 
         legend.title = element_blank(), 
         legend.key = element_blank()) +
-    scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF", "#73D055FF"))
+    scale_color_manual(values = c("#73D055FF", "#440154FF", "#39568CFF", "#1F968BFF"))
     
 ggsave("Pk_clusters/NJT_tree_cluster_unrooted.png", dpi = 600, height = 15, width = 15, limitsize = FALSE, NJT_tree_plot)
 
@@ -1728,10 +1734,10 @@ library(igraph)
 
 
 .generate.label.palette <-
-  function(labels, palette = "Tableau 10") {
+  function(labels) {
     label.names <- levels(labels)
-    label.palette <-
-      palette.colors(length(label.names), palette = "Tableau 10")
+    label.palette <- # c("#440154FF", "#73D055FF", "#39568CFF") # for clusters
+      viridis(length(label.names), option = ifelse(length(label.names) < 5, "D", "H")) # for districts
     names(label.palette) <- label.names
     
     label.palette
@@ -2007,6 +2013,7 @@ relaxed.IBD.cutoffs <- relaxed.IBD.cutoffs * 0.95
 library(igraph)
 library(tidyverse)
 library(MetamapsDB)
+library(viridis)
 
 Pk.IBD.file <- "Pk.hmm_fract.txt"
 Pk.IBD <- read.delim(Pk.IBD.file)
@@ -2030,6 +2037,19 @@ metadata <- metadata %>%
                                 grepl("PK_SB_DNA_063", Sample), "Mn", .$Cluster)) %>% # if not, just use values from X7 - clusters and Sabah
     mutate(Cluster = ifelse(Cluster == "Sabah", "Mf", .$Cluster)) # if its the remaining Sabah samples, make them Mn, else keep them the same
 
+# add state and district info
+metadata <- metadata %>%
+  mutate(State = ifelse(Cluster == "Peninsular", "Peninsular", Location)) %>%
+  mutate(State = ifelse(State != "Sabah" & State != "Peninsular", "Sarawak", State)) %>%
+  mutate(Sample2 = Sample) %>%
+  mutate(Sample = str_remove(Sample2, "_DK.*")) %>%
+  left_join(
+    read_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD_geo_clusters/districts_metadata.csv") %>%
+    select(Sample, district)
+  ) %>%
+  mutate(district = ifelse(is.na(district), Location, district)) %>%
+  select(-Sample) %>%
+  rename(Sample = Sample2)
 
 # Plot Fraction of sites that are IBD
 IBD_meta_combined <- Pk.IBD %>%
@@ -2039,13 +2059,17 @@ IBD_meta_combined <- Pk.IBD %>%
       metadata %>%
         rename(sample1 = Sample) %>%
         rename(cluster1 = Cluster) %>%
-        rename(location1 = Location)
+        rename(district1 = district) %>% 
+        rename(state1 = State), 
+      by = "sample1"
     ) %>% 
     left_join(
       metadata %>%
         rename(sample2 = Sample) %>%
         rename(cluster2 = Cluster) %>%
-        rename(location2 = Location)
+        rename(district2 = district) %>% 
+        rename(state2 = State), 
+      by = "sample2" 
     )
   
 ## Fraction IBD within and between clusters
@@ -2060,12 +2084,12 @@ IBD_fract_plot <- IBD_meta_combined %>%
   scale_color_viridis_d() +
   ylab("Fraction of IBD sites")
 
-ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD/fract_IBD_clusters.png", dpi = 300, IBD_fract_plot)
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD/fract_IBD_clusters.png", dpi = 300, height = 7, width = 7, IBD_fract_plot)
 
-## Fraction IBD within and between locations
+## Fraction IBD within and between districts
 IBD_fract_plot <- IBD_meta_combined %>%
-  unite("Clusters", c("location1", "location2"), sep = "-") %>% 
-  ggplot(aes(x = Clusters, y = fract_sites_IBD, colour = Clusters)) +
+  unite("Districts", c("district1", "district2"), sep = "-") %>% 
+  ggplot(aes(x = Districts, y = fract_sites_IBD, colour = Districts)) +
   geom_boxplot() +
   theme(legend.position = "none", 
     legend.title = element_blank(), 
@@ -2074,7 +2098,8 @@ IBD_fract_plot <- IBD_meta_combined %>%
   scale_color_viridis_d() +
   ylab("Fraction of IBD sites")
 
-ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD/fract_IBD_locations.png", height = 20, dpi = 300, IBD_fract_plot)
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD/fract_IBD_locations.png", height = 30, dpi = 300, IBD_fract_plot)
+
 
 # Base plots
 Pk.label.cols <- c("Cluster")
@@ -2108,12 +2133,84 @@ plot.IBD(
   "Cluster",
   legend.title = "Cluster"
 )
+
+# Base plots - districts
+Pk.label.cols <- c("district")
+Pk.legend.titles <- list("district" = "district")
+Pk.prefixes <- metadata %>% 
+  select(district) %>%
+  unique() %>% 
+  as.list()
+
+plot.IBDs(
+  Pk.prefixes,
+  IBD.cutoffs,
+  Pk.IBD,
+  metadata,
+  Pk.label.cols,
+  legend.titles = Pk.legend.titles
+)
+
+IBDs.plot.file <- "Major_IBDs_district.pdf"
+
+plot.IBD(
+  IBDs.plot.file,
+  Pk.IBD.cutoffs,
+  Pk.IBD,
+  metadata,
+  "district",
+  legend.title = "Districts"
+)
+
+
+# Base plots - states - might want to change the palette for fewer levels
+Pk.label.cols <- c("States")
+Pk.legend.titles <- list("States" = "States")
+Pk.prefixes <- metadata %>% 
+  select(State) %>%
+  unique() %>% 
+  as.list()
+
+plot.IBDs(
+  Pk.prefixes,
+  IBD.cutoffs,
+  Pk.IBD,
+  metadata,
+  Pk.label.cols,
+  legend.titles = Pk.legend.titles
+)
+
+
+IBDs.plot.file <- "Major_IBDs_States.pdf"
+
+plot.IBD(
+  IBDs.plot.file,
+  Pk.IBD.cutoffs,
+  Pk.IBD,
+  metadata,
+  "State",
+  legend.title = "States"
+)
+
+# Identify the two outlier at 3.42% - that connect the two clusters
+## Filter for state to state, calc mean and arrange in desc order
+IBD_meta_combined %>%
+  filter(cluster1 == "Mf" & cluster2 == "Mn") %>%
+  group_by(sample1) %>%
+  summarise(mean = mean(fract_sites_IBD)) %>%
+  arrange(desc(mean)) %>%
+  head(n=12)
+
+IBD_meta_combined %>%
+  filter(cluster1 == "Mf" & cluster2 == "Mn") %>%
+  filter(fract_sites_IBD >= 0.034) %>%
+  arrange(desc(fract_sites_IBD)) # the top two samples should be two in the plot that are closest to Mn
 ```
 
 #########################################################################################################
 
 
-# Introgression and clustering using ADMIXTURE and hmmIBD
+# ADMIXTURE
 
 ADMIXTURE is a clustering software that infers populations and ancestries. It requires unlinked SNPs in PLINK format, specifically the .bed (binary allelic genotype table) file as input. Here we used the "cleaned.bim" file previously created (filtered for MAF and GM).
 
@@ -2285,105 +2382,6 @@ admixture_table %>%
     scale_fill_manual(values = c("#440154FF", "#39568CFF", "#73D055FF")) +
     facet_grid(~Geo_cluster, scales = "free", space = "free")
 ```
-
-
-# Looking at potential Mf-Mn introgression
-
-**NB.** Below is run on the HPC.
-
-
-```{R,eval=F}
-library(tidyverse)
-library(janitor)
-
-metadata <- read_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk.csv", col_names = FALSE) %>% 
-        select(1, 6, 7) %>%
-        rename(Sample = X1) %>%
-        rename(Location = X6) %>%
-        rename(Cluster = X7) %>% 
-        as.data.frame() 
-
-metadata <- metadata %>% 
-    mutate(Cluster = ifelse(grepl("PK_SB_DNA_011", Sample) | # does the ID match any of these
-                                grepl("PK_SB_DNA_091", Sample) | 
-                                grepl("PK_SB_DNA_043", Sample) |
-                                grepl("PK_SB_DNA_016", Sample) |  
-                                grepl("PK_SB_DNA_092", Sample) | 
-                                grepl("PK_SB_DNA_030", Sample) | 
-                                grepl("PK_SB_DNA_093", Sample) | 
-                                grepl("PK_SB_DNA_042", Sample) | 
-                                grepl("PK_SB_DNA_063", Sample), "Mn", .$Cluster)) %>% # if not, just use values from X7 - clusters and Sabah
-    mutate(Cluster = ifelse(Cluster == "Sabah", "Mf", .$Cluster)) # if its the remaining Sabah samples, make them Mn, else keep them the same
-
-# Mixed Mf samples
-IBD_data_Mf <- read.table("Pk.hmm.txt") %>% 
-  row_to_names(1) %>% 
-  left_join(
-    metadata %>% 
-    rename(sample2 = Sample) # base the joining of cluster info on sample2 column
-    ) %>%
-  filter(Cluster == "Mn") %>%  # filter for Mn Cluster in the second column - so, should have mixed Mf samples in first column and all Mn samples in second column
-  filter(sample1 == "ERR274221" | 
-          sample1 == "ERR274222" |
-          sample1 == "ERR985375" |
-          sample1 == "ERR985378" |
-          sample1 == "ERR985381" |
-          sample1 == "ERR985384" |
-          sample1 == "PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4") # filter for first column equal to mixed Mf samples 
-
-# Mixed Mn samples
-IBD_data_Mn <- read.table("Pk.hmm.txt") %>% 
-  row_to_names(1) %>% 
-  left_join(
-    metadata %>% 
-    rename(sample2 = Sample) 
-    ) %>%
-  filter(Cluster == "Mf") %>%  # filter for Mf Cluster in the second column - so, should have mixed samples in the first column and all Mn samples in second column
-  filter(sample1 == "PK_SB_DNA_042_DKDL210002171-1a_HWHGKDSXY_L4" | 
-          sample1 == "PK_SB_DNA_063_DKDL210002192-1a_HWHGKDSXY_L4" |
-          sample1 == "PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4") # filter for first column equal to mixed Mn samples 
-
-IBD_plot <- IBD_data_Mf %>%
-  filter(sample1 == "ERR274221") %>%
-  mutate(sample1 = paste(sample1, 1:n(), sep = "_")) %>% 
-  pivot_longer(cols = start:end, names_to = "pos", values_to = "pos_value") %>%
-  arrange(sample1) %>%
-  filter(chr == 13 | chr == 14) %>%  
-  mutate(chr = paste0("Chromosome ", chr)) %>% 
-  mutate(IBD = as.factor(different)) %>% 
-  mutate(pos_value = as.numeric(pos_value)) %>%
-  ggplot(aes(x = pos_value, y = IBD, colour = IBD, group = sample1)) +
-  geom_point() +
-  geom_line() +
-  theme(legend.position = "none") +
-  scale_colour_manual(values = c( "#73D055FF", "#440154FF")) +
-  xlab("Position in chromosome") +
-  facet_grid(~chr, scales = "free", space = "free") 
-
-ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Introgression/IBD_plot_Mixed_Mf.png", dpi = 600, width = 12, IBD_plot)
-
-
-IBD_plot <- IBD_data_Mn %>%
-  filter(sample1 == "PK_SB_DNA_093_DKDL210002222-1a_HWHGKDSXY_L4") %>%
-  mutate(sample1 = paste(sample1, 1:n(), sep = "_")) %>% 
-  pivot_longer(cols = start:end, names_to = "pos", values_to = "pos_value") %>%
-  arrange(sample1) %>%
-  filter(chr == 13 | chr == 14) %>%  
-  mutate(chr = paste0("Chromosome ", chr)) %>% 
-  mutate(IBD = as.factor(different)) %>% 
-  mutate(pos_value = as.numeric(pos_value)) %>%
-  ggplot(aes(x = pos_value, y = IBD, colour = IBD, group = sample1)) +
-  geom_point() +
-  geom_line() +
-  theme(legend.position = "none") +
-  scale_colour_manual(values = c( "#73D055FF", "#440154FF")) +
-  xlab("Position in chromosome") +
-  facet_grid(~chr, scales = "free", space = "free") 
-
-ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Introgression/IBD_plot_Mixed_Mn.png", dpi = 600, width = 20, IBD_plot)
-
-```
-
 
 #########################################################################################################
 
@@ -2745,6 +2743,7 @@ Files: /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis
 
 ```{R,eval=F}
 library(igraph)
+library(viridis)
 
 .reorder.metadata <-
   function(IBD, metadata, sample.col = "Sample") {
@@ -2775,10 +2774,10 @@ library(igraph)
 
 
 .generate.label.palette <-
-  function(labels, palette = "Tableau 10") {
+  function(labels) {
     label.names <- levels(labels)
     label.palette <-
-      palette.colors(length(label.names), palette = "Tableau 10")
+      viridis(length(label.names), option = ifelse(length(label.names) < 5, "D", "H"))
     names(label.palette) <- label.names
     
     label.palette
@@ -3089,12 +3088,19 @@ metadata <- metadata2 %>%
       rename(Sample2 = Sample) %>%
       mutate(Sample = str_remove(Sample2, "_DK.*"))
   ) %>% 
+  mutate(State= ifelse(Geo_cluster != "Sabah" & Geo_cluster != "Peninsular", "Sarawak", Geo_cluster)) %>% 
+  left_join(
+    read_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD_geo_clusters/districts_metadata.csv") %>%
+    select(Sample, district)
+  ) %>% 
+  mutate(district = ifelse(is.na(district), Location, district)) %>%
   mutate(Sample = Sample2) %>%
-  select(-Sample2) 
+  select(Sample, Cluster, State, district) 
 
 #Mf
 Pk.IBD.file <- "Pk_Mf.hmm_fract.txt"
-Pk.IBD <- read.delim(Pk.IBD.file)
+Pk.IBD <- read.delim(Pk.IBD.file) 
+
 
 # Plot Fraction of sites that are IBD
 IBD_meta_combined <- Pk.IBD %>%
@@ -3104,21 +3110,23 @@ IBD_meta_combined <- Pk.IBD %>%
       metadata %>%
         rename(sample1 = Sample) %>%
         rename(cluster1 = Cluster) %>%
-        rename(location1 = Location),
+        rename(district1 = district) %>% 
+        rename(state1 = State), 
       by = "sample1"
     ) %>% 
     left_join(
       metadata %>%
         rename(sample2 = Sample) %>%
         rename(cluster2 = Cluster) %>%
-        rename(location2 = Location),
+        rename(district2 = district) %>% 
+        rename(state2 = State), 
       by = "sample2" 
     )
 
-## Fraction IBD within and between locations
+## Fraction IBD within and between districts
 IBD_fract_plot <- IBD_meta_combined %>%
-  unite("Clusters", c("location1", "location2"), sep = "-") %>% 
-  ggplot(aes(x = Clusters, y = fract_sites_IBD, colour = Clusters)) +
+  unite("Districts", c("district1", "district2"), sep = "-") %>% 
+  ggplot(aes(x = Districts, y = fract_sites_IBD, colour = Districts)) +
   geom_boxplot() +
   theme(legend.position = "none", 
     legend.title = element_blank(), 
@@ -3127,14 +3135,28 @@ IBD_fract_plot <- IBD_meta_combined %>%
   scale_color_viridis_d() +
   ylab("Fraction of IBD sites")
 
-ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD_geo_clusters/fract_IBD_locations_Mf.png", dpi = 300, IBD_fract_plot)
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD_geo_clusters/Mf/fract_IBD_districts_Mf.png", height = 12, dpi = 300, IBD_fract_plot)
+
+## Fraction IBD within and between states
+IBD_fract_plot <- IBD_meta_combined %>%
+  unite("States", c("state1", "state2"), sep = "-") %>% 
+  ggplot(aes(x = States, y = fract_sites_IBD, colour = States)) +
+  geom_boxplot() +
+  theme(legend.position = "none", 
+    legend.title = element_blank(), 
+    panel.border = element_rect(colour = "black", fill = NA, size = 1)) +
+  coord_flip() +
+  scale_color_viridis_d() +
+  ylab("Fraction of IBD sites")
+
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD_geo_clusters/Mf/fract_IBD_States_Mf.png", dpi = 300, IBD_fract_plot)
 
 
-# Base plots
-Pk.label.cols <- c("Geo_cluster")
-Pk.legend.titles <- list("Geo_cluster" = "Geo_cluster")
+# Base plots - districts
+Pk.label.cols <- c("district")
+Pk.legend.titles <- list("district" = "district")
 Pk.prefixes <- metadata %>% 
-  select(Geo_cluster) %>%
+  select(district) %>%
   unique() %>% 
   as.list()
 
@@ -3147,26 +3169,106 @@ plot.IBDs(
   legend.titles = Pk.legend.titles
 )
 
-Pk.median.file <- "Pk_Mf_pairwise_IBD_median.txt"
+Pk.median.file <- "Pk_Mf_pairwise_IBD_median_district.txt"
 Pk.median <- read.pairwise.matrix(Pk.median.file)
 
 Pk.IBD.cutoffs <- c(fivenum(Pk.median), relaxed.IBD.cutoffs)
 
-IBDs.plot.file <- "Mf_major_IBDs.pdf"
+IBDs.plot.file <- "Mf_major_IBDs_district.pdf"
 
 plot.IBD(
   IBDs.plot.file,
   Pk.IBD.cutoffs,
   Pk.IBD,
   metadata,
-  "Geo_cluster",
-  legend.title = "Geographic clusters within Mf"
+  "district",
+  legend.title = "Districts within Mf"
 )
 
 
-#Mn
+# Base plots - states - might want to change the palette for fewer levels
+Pk.label.cols <- c("States")
+Pk.legend.titles <- list("States" = "States")
+Pk.prefixes <- metadata %>% 
+  select(State) %>%
+  unique() %>% 
+  as.list()
+
+plot.IBDs(
+  Pk.prefixes,
+  IBD.cutoffs,
+  Pk.IBD,
+  metadata,
+  Pk.label.cols,
+  legend.titles = Pk.legend.titles
+)
+
+Pk.median.file <- "Pk_Mf_pairwise_IBD_median_states.txt"
+Pk.median <- read.pairwise.matrix(Pk.median.file)
+
+Pk.IBD.cutoffs <- c(fivenum(Pk.median), relaxed.IBD.cutoffs)
+
+IBDs.plot.file <- "Mf_major_IBDs_States.pdf"
+
+plot.IBD(
+  IBDs.plot.file,
+  Pk.IBD.cutoffs,
+  Pk.IBD,
+  metadata,
+  "State",
+  legend.title = "States within Mf"
+)
+
+
+# Identify the two outlier Sabah outlier samples
+## Filter for state to state, calc mean and arrange in desc order
+IBD_meta_combined %>%
+  filter(state1 == "Sarawak" & state2 == "Sabah") %>%
+  group_by(sample2) %>%
+  summarise(mean = mean(fract_sites_IBD)) %>%
+  arrange(desc(mean))
+
+IBD_meta_combined %>%
+  filter(state1 == "Sarawak" & state2 == "Sabah") %>%
+  filter(sample2 == "PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4") %>%
+  arrange(desc(fract_sites_IBD)) %>%
+  head(n=12) %>%
+  select(sample1, sample2, fract_sites_IBD)
+
+IBD_meta_combined %>%
+  filter(state1 == "Sarawak" & state2 == "Sabah") %>%
+  filter(sample2 == "PK_SB_DNA_053_DKDL210002182-1a_HWHGKDSXY_L4") %>%
+  arrange(desc(fract_sites_IBD)) %>%
+  head(n=12) %>%
+  select(sample1, sample2, fract_sites_IBD)
+
+# Where are the regions of IBD in the connected samples? Is it the same as the introgressed regions you've identified?
+Pk.IBD_full <- read.delim("Pk_Mf.hmm.txt")
+
+Pk.IBD_full %>%
+  filter(sample2 == "PK_SB_DNA_028_DKDL210002157-1a_HWHGKDSXY_L4" | sample2 == "PK_SB_DNA_053_DKDL210002182-1a_HWHGKDSXY_L4") %>% 
+  filter(sample1 == "ERR985378" |
+    sample2 == "ERR274221" |
+    sample2 == "ERR985373" |
+    sample2 == "ERR985375" |
+    sample2 == "ERR985384" | 
+    sample2 == "ERR985372" |
+    sample2 == "ERR985379" | 
+    sample2 == "ERR985374" |
+    sample2 == "ERR985381" |
+    sample2 == "ERR985377" |
+    sample2 == "ERR274222" |
+    sample2 == "ERR985380") %>% 
+    filter(different == 0) %>% 
+    unite("region", c("start", "end"), sep = "-") %>% write_tsv("shared_regions_for_two_samples.tsv")
+
+
+
+
+
+
+#Mn - change wd
 Pk.IBD.file <- "Pk_Mn.hmm_fract.txt"
-Pk.IBD <- read.delim(Pk.IBD.file)
 
 # Plot Fraction of sites that are IBD
 IBD_meta_combined <- Pk.IBD %>%
@@ -3176,21 +3278,23 @@ IBD_meta_combined <- Pk.IBD %>%
       metadata %>%
         rename(sample1 = Sample) %>%
         rename(cluster1 = Cluster) %>%
-        rename(location1 = Location),
-      by = "sample1" 
+        rename(district1 = district) %>% 
+        rename(state1 = State), 
+      by = "sample1"
     ) %>% 
     left_join(
       metadata %>%
         rename(sample2 = Sample) %>%
         rename(cluster2 = Cluster) %>%
-        rename(location2 = Location),
+        rename(district2 = district) %>% 
+        rename(state2 = State), 
       by = "sample2" 
     )
 
-## Fraction IBD within and between locations
+## Fraction IBD within and between districts
 IBD_fract_plot <- IBD_meta_combined %>%
-  unite("Clusters", c("location1", "location2"), sep = "-") %>% 
-  ggplot(aes(x = Clusters, y = fract_sites_IBD, colour = Clusters)) +
+  unite("Districts", c("district1", "district2"), sep = "-") %>% 
+  ggplot(aes(x = Districts, y = fract_sites_IBD, colour = Districts)) +
   geom_boxplot() +
   theme(legend.position = "none", 
     legend.title = element_blank(), 
@@ -3199,13 +3303,27 @@ IBD_fract_plot <- IBD_meta_combined %>%
   scale_color_viridis_d() +
   ylab("Fraction of IBD sites")
 
-ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD_geo_clusters/fract_IBD_locations_Mn.png", dpi = 300, IBD_fract_plot)
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD_geo_clusters/Mn/fract_IBD_districts_Mn.png", dpi = 300, height = 12, IBD_fract_plot)
 
-# Base plots
-Pk.label.cols <- c("Geo_cluster")
-Pk.legend.titles <- list("Geo_cluster" = "Geo_cluster")
+IBD_fract_plot <- IBD_meta_combined %>%
+  unite("States", c("state1", "state2"), sep = "-") %>% 
+  ggplot(aes(x = States, y = fract_sites_IBD, colour = States)) +
+  geom_boxplot() +
+  theme(legend.position = "none", 
+    legend.title = element_blank(), 
+    panel.border = element_rect(colour = "black", fill = NA, size = 1)) +
+  coord_flip() +
+  scale_color_viridis_d() +
+  ylab("Fraction of IBD sites")
+
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD_geo_clusters/Mn/fract_IBD_states_Mn.png", dpi = 300, IBD_fract_plot)
+
+
+# Base plots - districts
+Pk.label.cols <- c("district")
+Pk.legend.titles <- list("district" = "district")
 Pk.prefixes <- metadata %>% 
-  select(Geo_cluster) %>%
+  select(district) %>%
   unique() %>% 
   as.list()
 
@@ -3218,20 +3336,54 @@ plot.IBDs(
   legend.titles = Pk.legend.titles
 )
 
-Pk.median.file <- "Pk_Mn_pairwise_IBD_median.txt"
+Pk.median.file <- "Pk_Mn_pairwise_IBD_median_district.txt"
 Pk.median <- read.pairwise.matrix(Pk.median.file)
 
 Pk.IBD.cutoffs <- c(fivenum(Pk.median), relaxed.IBD.cutoffs)
 
-IBDs.plot.file <- "Mn_major_IBDs.pdf"
+IBDs.plot.file <- "Mn_major_IBDs_district.pdf"
 
 plot.IBD(
   IBDs.plot.file,
   Pk.IBD.cutoffs,
   Pk.IBD,
   metadata,
-  "Geo_cluster",
-  legend.title = "Geographic clusters within Mn"
+  "district",
+  legend.title = "Districts within Mn"
+)
+
+
+# Base plots - states
+Pk.label.cols <- c("States")
+Pk.legend.titles <- list("States" = "States")
+Pk.prefixes <- metadata %>% 
+  select(State) %>%
+  unique() %>% 
+  as.list()
+
+plot.IBDs(
+  Pk.prefixes,
+  IBD.cutoffs,
+  Pk.IBD,
+  metadata,
+  Pk.label.cols,
+  legend.titles = Pk.legend.titles
+)
+
+Pk.median.file <- "Pk_Mn_pairwise_IBD_median_states.txt"
+Pk.median <- read.pairwise.matrix(Pk.median.file)
+
+Pk.IBD.cutoffs <- c(fivenum(Pk.median), relaxed.IBD.cutoffs)
+
+IBDs.plot.file <- "Mn_major_IBDs_States.pdf"
+
+plot.IBD(
+  IBDs.plot.file,
+  Pk.IBD.cutoffs,
+  Pk.IBD,
+  metadata,
+  "State",
+  legend.title = "States within Mn"
 )
 ```
 
@@ -3565,12 +3717,13 @@ library(data.table)
 # Read in genotype file previously created and subset to orthologue genes
 genotype_file <- read_tsv("hmmIBD.tsv")
 orthologue_genes <- genotype_file %>% 
-  filter(CHROM == "14" & POS > 1298251 & POS < 1300946) %>%
-  rbind(genotype_file %>% filter(CHROM == "05" & POS > 404904 & POS < 406784)) %>%
-  rbind(genotype_file %>% filter(CHROM == "01" & POS > 376657 & POS < 380131)) %>%
-  rbind(genotype_file %>% filter(CHROM == "10" & POS > 438000 & POS < 442394)) %>%
-  rbind(genotype_file %>% filter(CHROM == "14" & POS > 2101527 & POS < 2107577)) %>%
-  rbind(genotype_file %>% filter(CHROM == "13" & POS > 2279872 & POS < 2281224)) 
+  filter(CHROM == "01" & POS > 381348 & POS < 384824) %>%
+  rbind(genotype_file %>% filter(CHROM == "05" & POS > 445338 & POS < 447218)) %>%
+  rbind(genotype_file %>% filter(CHROM == "08" & POS > 1408170 & POS < 1411360)) %>%
+  rbind(genotype_file %>% filter(CHROM == "10" & POS > 448974 & POS < 453368)) %>%
+  rbind(genotype_file %>% filter(CHROM == "13" & POS > 2302686 & POS < 2304038)) %>%
+  rbind(genotype_file %>% filter(CHROM == "14" & POS > 1308259 & POS < 1310954)) %>%
+  rbind(genotype_file %>% filter(CHROM == "14" & POS > 2116423 & POS < 2122473))
 
 # Read in annotation text file, left join to subset genotype file & subset to non-synomynous
 annotation <- read_table("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/PK_consensus_filtered_annotation.txt", skip = 82) %>%
@@ -3588,6 +3741,13 @@ annotated_orthologue_genes <- orthologue_genes %>%
   filter(!grepl("upstream_gene_variant", Consequence)) %>%
   filter(!grepl("intron_variant", Consequence)) %>%
   filter(!grepl("stop_retained_variant", Consequence))
+
+# Export Pk variants
+annotated_orthologue_genes %>% 
+  mutate(CHROM = as.numeric(CHROM)) %>%
+  arrange(CHROM, POS) %>%
+  select(1:2, 188:ncol(.)) %>%
+  write_tsv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/drug_resistance/orthologues_in_Pk.tsv") 
 
 
 # plot
@@ -3644,16 +3804,21 @@ SNP_Frequency_plot <- SNP_Frequency %>%
 ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/drug_resistance/SNP_Frequency_plot_01.png", dpi = 600, width = 12, SNP_Frequency_plot)
 ```
 
+## RSCB PDB 
+
+For variants that are "close calls" in AA position to their orhoglues in Pv/Pf, we searched for the area of the resulting protein structures using RSCB PDB.
+
 ## Subset to orthologue genes and build trees
 
 IBS to be caclculated separately for each of the genes:
 
-ordered_PKNH_01_v2  376657  380131  Extract 
-ordered_PKNH_05_v2  404904  406784  Extract
-ordered_PKNH_10_v2  438000  442394  Extract
-ordered_PKNH_13_v2  2279872 2281224 Extract
-ordered_PKNH_14_v2  1298251 1300946 Extract
-ordered_PKNH_14_v2  2101527 2107577 Extract
+ordered_PKNH_01_v2  381348  384824  Extract 
+ordered_PKNH_05_v2  445338  447218  Extract
+ordered_PKNH_08_v2  1408170 1411360 Extract 
+ordered_PKNH_10_v2  448974  453368  Extract
+ordered_PKNH_13_v2  2302686 2304038 Extract
+ordered_PKNH_14_v2  1308259 1310954 Extract
+ordered_PKNH_14_v2  2116423 2122473 Extract
 
 Firstly, you need to use plink to create a new plink dataset (cleaned), that can be passed into IBS plotting.
 So, you need to repeat the chunk below (or write a loop) for each of the genes described above, by substituing them in the drug_resistant_genes.txt file.
@@ -3675,11 +3840,95 @@ plink --file Pk --maf 0.05 --geno 0.25 --mind 0.25 --make-bed --out cleaned
 
 plink --bfile cleaned \
   --distance square \
-  --out drug_resistance/DR_14
+  --out drug_resistance/DR_14_2
+```
+
+```{bash,eval=F}
+cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/drug_resistance
+Rscript  /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/drug_resistance/ordination_plots.R
+```
+
+```{R,eval=F}
+# Load packages
+library(tidyverse)
+library(ape)
+library(ggtree)
+
+# Neighbour-joining tree
+
+## Create distance matrix from PLINK data and build NJT
+NJT_ID <- read_table("DR_01.dist.id", col_names=F) %>%
+    as.data.frame() %>%
+    mutate_all(~str_remove(., "_DKD.*")) 
+
+NJT_matrix <- read_table("DR_01.dist", col_names=NJT_ID$X1) %>%
+    as.data.frame() %>%
+    add_column(Row_Names = NJT_ID$X1) %>%
+    column_to_rownames("Row_Names") %>%
+    as.matrix()
+
+NJT_tree <- nj(NJT_matrix)
+
+# Read in initial metadata
+NJT_metadata <- read_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk.csv", col_names = FALSE) %>% 
+        select(1, 6, 7) %>%
+        rename(Sample = X1) %>%
+        rename(Location = X6) %>%
+        rename(Cluster = X7) %>% 
+        as.data.frame() 
+
+NJT_metadata <- NJT_metadata %>% 
+    mutate(Cluster = ifelse(grepl("PK_SB_DNA_011", Sample) | # does the ID match any of these
+                                grepl("PK_SB_DNA_091", Sample) | 
+                                grepl("PK_SB_DNA_043", Sample) |
+                                grepl("PK_SB_DNA_016", Sample) |  
+                                grepl("PK_SB_DNA_092", Sample) | 
+                                grepl("PK_SB_DNA_030", Sample) | 
+                                grepl("PK_SB_DNA_093", Sample) | 
+                                grepl("PK_SB_DNA_042", Sample) | 
+                                grepl("PK_SB_DNA_063", Sample), "Mn", .$Cluster)) %>% # if not, just use values from X7 - clusters and Sabah
+    mutate(Cluster = ifelse(Cluster == "Sabah", "Mf", .$Cluster)) %>% # if its the remaining Sabah samples, make them Mn, else keep them the same
+    mutate_all(~str_remove(., "_DKD.*")) 
+
+# Plot tree
+## options(ignore.negative.edge=TRUE)
+
+options(ignore.negative.edge=TRUE)
+
+# 01
+# Cluster 
+NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
+    theme(legend.position = "right", 
+        legend.title = element_blank(), 
+        legend.key = element_blank()) +
+    scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF"))
+    
+ggsave("NJT_unrooted_01.png", dpi = 600, height = 15, width = 15, limitsize = FALSE, NJT_tree_plot)
+
+#Labels
+NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
+    theme(legend.position = "right", 
+    legend.title = element_blank(), 
+    legend.key = element_blank()) +
+    geom_tiplab(size = 2) +
+    scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF"))
+
+ggsave("NJT_labelled_unrooted_01.png", dpi = 600, height = 20, width = 20, limitsize = FALSE, NJT_tree_plot)
+```
+
+## Align protein sequences of Pk against Pv orthologues 
+
+This was done with PlasmoDB. Then using data read in above, we can subset to variants of interest the obtain their SNP frequencies and hypothesise reasoning for their presence.
+
+```{R,eval=F}
+SNP_Frequency %>% 
+  filter(CHROM == "14" & (POS == 1309410 | POS == 2116751 | POS == 2118627 | POS == 2120614 | POS == 2121527 | POS == 2121528 | POS == 2121722 | POS == 2121725)) %>%
+  arrange(POS) %>%
+  write_tsv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/drug_resistance/SNP_freq_for_variant_orthologues.tsv")
 ```
 
 
-## Align protein sequences of Pk against Pv orthologues
+## 
 
 
 
@@ -3687,10 +3936,60 @@ plink --bfile cleaned \
 
 
 
+# Introgression 
+
+
+
+## NJT on introgressed regions
+
+The regions_to_include_NJT.txt file was altered dependent on what window(s) needed to be plotted. A 20K buffer was added to either side of the 10k window
+
+
+
+```{bash,eval=F}
+while read WINDOW CHROM start end; do
+  echo "$CHROM  $start  $end  Include" > Introgression/NJT_data/${WINDOW}.txt
+done <Introgression/tree_windows.tsv
+
+for i in Introgression/NJT_data/*.txt
+  do
+    plink --bcf PK_consensus_filtered_pass.bcf \
+    --keep-allele-order \
+    --vcf-idspace-to _ \
+    --double-id \
+    --allow-extra-chr 0 \
+    --make-bed \
+    --indiv-sort file sample_order.txt \
+    --extract 'range' $i \
+    --allow-no-sex \
+    --out Pk
+
+    plink --bfile Pk --recode --out Pk
+    plink --file Pk --maf 0.05 --geno 0.25 --mind 0.25 --make-bed --out cleaned
+    plink --bfile cleaned --distance square --out Introgression/NJT_data/${i%.txt}.NJT
+done
 
 
 
 
+
+
+plink --bcf PK_consensus_filtered_pass.bcf \
+  --keep-allele-order \
+  --vcf-idspace-to _ \
+  --double-id \
+  --allow-extra-chr 0 \
+  --make-bed \
+  --indiv-sort file sample_order.txt \
+  --extract 'range' regions_to_include_NJT.txt \
+  --allow-no-sex \
+  --out Pk
+
+plink --bfile Pk --recode --out Pk
+plink --file Pk --maf 0.05 --geno 0.25 --mind 0.25 --make-bed --out cleaned
+plink --bfile cleaned --distance square --out Pk
+```
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/introgression_NJT_plots.R
 
 
 

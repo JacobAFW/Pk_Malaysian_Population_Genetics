@@ -2,7 +2,7 @@
 library(tidyverse)
 
 # Read in data
-snp_data <- read_table("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk.bim", col_names = F) %>%
+snp_data <- read_table("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/cleaned.bim", col_names = F) %>%
     select(X2) %>%
     separate(X2, into = c("Contig", "Pos", "Major", "Minor", "Nothing"), sep = ":") %>%
     mutate(Pos = as.numeric(Pos)) %>%

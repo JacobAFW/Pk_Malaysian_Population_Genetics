@@ -9,12 +9,15 @@ library(data.table)
 # Read in genotype file previously created and subset to orthologue genes
 genotype_file <- read_tsv("hmmIBD.tsv")
 orthologue_genes <- genotype_file %>% 
-  filter(CHROM == "14" & POS > 1298251 & POS < 1300946) %>%
-  rbind(genotype_file %>% filter(CHROM == "05" & POS > 404904 & POS < 406784)) %>%
-  rbind(genotype_file %>% filter(CHROM == "01" & POS > 376657 & POS < 380131)) %>%
-  rbind(genotype_file %>% filter(CHROM == "10" & POS > 438000 & POS < 442394)) %>%
-  rbind(genotype_file %>% filter(CHROM == "14" & POS > 2101527 & POS < 2107577)) %>%
-  rbind(genotype_file %>% filter(CHROM == "13" & POS > 2279872 & POS < 2281224)) 
+  filter(CHROM == "01" & POS > 381348 & POS < 384824) %>%
+  rbind(genotype_file %>% filter(CHROM == "05" & POS > 445338 & POS < 447218)) %>%
+  rbind(genotype_file %>% filter(CHROM == "08" & POS > 1408170 & POS < 1411360)) %>%
+  rbind(genotype_file %>% filter(CHROM == "10" & POS > 448974 & POS < 453368)) %>%
+  rbind(genotype_file %>% filter(CHROM == "12" & POS > 2627516 & POS < 2629654)) %>%
+  rbind(genotype_file %>% filter(CHROM == "13" & POS > 2302686 & POS < 2304038)) %>%
+  rbind(genotype_file %>% filter(CHROM == "14" & POS > 1308259 & POS < 1310954)) %>%
+  rbind(genotype_file %>% filter(CHROM == "14" & POS > 2116423 & POS < 2122473))
+
 
 # Read in annotation text file, left join to subset genotype file & subset to non-synomynous
 annotation <- read_table("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/PK_consensus_filtered_annotation.txt", skip = 82) %>%
@@ -99,6 +102,17 @@ SNP_Frequency_plot <- SNP_Frequency %>%
 ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/drug_resistance/SNP_Frequency_plot_05.png", dpi = 600, width = 12, SNP_Frequency_plot)
 
 SNP_Frequency_plot <- SNP_Frequency %>%
+  filter(CHROM == "08") %>%
+  ggplot(aes(x = POS, y = SNP_freq, colour = Cluster)) +
+  geom_point(size = 3) +
+  geom_line(aes(group = POS), colour = "grey") +
+  scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF")) +
+  ylab("SNP Frequency") +
+  xlab("Chromosome Postion")
+
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/drug_resistance/SNP_Frequency_plot_08.png", dpi = 600, width = 12, SNP_Frequency_plot)
+
+SNP_Frequency_plot <- SNP_Frequency %>%
   filter(CHROM == "10") %>%
   ggplot(aes(x = POS, y = SNP_freq, colour = Cluster)) +
   geom_point(size = 3) +
@@ -177,6 +191,17 @@ SNP_Frequency_plot <- SNP_Frequency %>%
 ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/drug_resistance/SNP_Frequency_plot_Mf_location_05.png", dpi = 600, width = 12, SNP_Frequency_plot)
 
 SNP_Frequency_plot <- SNP_Frequency %>%
+  filter(CHROM == "08") %>%
+  ggplot(aes(x = POS, y = SNP_freq, colour = Location)) +
+  geom_point(size = 3) +
+  geom_line(aes(group = POS), colour = "grey") +
+  scale_color_manual(values = c("#440154FF", "#1F968BFF")) +
+  ylab("SNP Frequency") +
+  xlab("Chromosome Postion")
+
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/drug_resistance/SNP_Frequency_plot_Mf_location_08.png", dpi = 600, width = 12, SNP_Frequency_plot)
+
+SNP_Frequency_plot <- SNP_Frequency %>%
   filter(CHROM == "10") %>%
   ggplot(aes(x = POS, y = SNP_freq, colour = Location)) +
   geom_point(size = 3) +
@@ -242,6 +267,17 @@ SNP_Frequency_plot <- SNP_Frequency %>%
   xlab("Chromosome Postion")
 
 ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/drug_resistance/SNP_Frequency_plot_Mn_location_05.png", dpi = 600, width = 12, SNP_Frequency_plot)
+
+SNP_Frequency_plot <- SNP_Frequency %>%
+  filter(CHROM == "08") %>%
+  ggplot(aes(x = POS, y = SNP_freq, colour = Location)) +
+  geom_point(size = 3) +
+  geom_line(aes(group = POS), colour = "grey") +
+  scale_color_manual(values = c("#440154FF", "#1F968BFF")) +
+  ylab("SNP Frequency") +
+  xlab("Chromosome Postion")
+
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/drug_resistance/SNP_Frequency_plot_Mn_location_08.png", dpi = 600, width = 12, SNP_Frequency_plot)
 
 SNP_Frequency_plot <- SNP_Frequency %>%
   filter(CHROM == "10") %>%

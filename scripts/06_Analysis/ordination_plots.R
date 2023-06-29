@@ -136,7 +136,7 @@ NJT_tree_plot <- ggtree(NJT_tree, layout="circular", size = 0.5, aes(colour = Cl
     theme(legend.position = "right", 
         legend.title = element_blank(), 
         legend.key = element_blank()) +
-    scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF", "#73D055FF"))
+    scale_color_manual(values = c("#440154FF", "#39568CFF", "#73D055FF", "#1F968BFF"))
     
 ggsave("Pk_clusters/NJT_tree_cluster_rooted.png", dpi = 600, height = 8, width = 16, NJT_tree_plot)
 
@@ -144,7 +144,8 @@ NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = Cl
     theme(legend.position = "right", 
         legend.title = element_blank(), 
         legend.key = element_blank()) +
-    scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF", "#73D055FF"))
+    scale_color_manual(values = c("#440154FF", "#73D055FF", "#39568CFF", "#1F968BFF"))
+
     
 ggsave("Pk_clusters/NJT_tree_cluster_unrooted.png", dpi = 600, height = 15, width = 15, limitsize = FALSE, NJT_tree_plot)
 
@@ -163,6 +164,6 @@ NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = Cl
     legend.title = element_blank(), 
     legend.key = element_blank()) +
     geom_tiplab(size = 2) +
-    scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF", "#73D055FF"))
+    scale_color_manual(values = c("#440154FF", "#39568CFF", "#73D055FF", "#1F968BFF"))
 
 ggsave("Pk_clusters/NJT_tree_labelled_unrooted.png", dpi = 600, height = 20, width = 20, limitsize = FALSE, NJT_tree_plot)

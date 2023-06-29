@@ -29,10 +29,10 @@ library(igraph)
 
 
 .generate.label.palette <-
-  function(labels, palette = "Tableau 10") {
+  function(labels) {
     label.names <- levels(labels)
-    label.palette <-
-      palette.colors(length(label.names), palette = "Tableau 10")
+    label.palette <- # c("#440154FF", "#73D055FF", "#39568CFF") # for clusters
+      viridis(length(label.names), option = ifelse(length(label.names) < 5, "D", "H")) # for districts
     names(label.palette) <- label.names
     
     label.palette
@@ -308,6 +308,7 @@ relaxed.IBD.cutoffs <- relaxed.IBD.cutoffs * 0.95
 library(igraph)
 library(tidyverse)
 library(MetamapsDB)
+library(viridis)
 
 Pk.IBD.file <- "Pk.hmm_fract.txt"
 Pk.IBD <- read.delim(Pk.IBD.file)
@@ -331,6 +332,20 @@ metadata <- metadata %>%
                                 grepl("PK_SB_DNA_063", Sample), "Mn", .$Cluster)) %>% # if not, just use values from X7 - clusters and Sabah
     mutate(Cluster = ifelse(Cluster == "Sabah", "Mf", .$Cluster)) # if its the remaining Sabah samples, make them Mn, else keep them the same
 
+# add state and district info
+metadata <- metadata %>%
+  mutate(State = ifelse(Cluster == "Peninsular", "Peninsular", Location)) %>%
+  mutate(State = ifelse(State != "Sabah" & State != "Peninsular", "Sarawak", State)) %>%
+  mutate(Sample2 = Sample) %>%
+  mutate(Sample = str_remove(Sample2, "_DK.*")) %>%
+  left_join(
+    read_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD_geo_clusters/districts_metadata.csv") %>%
+    select(Sample, district)
+  ) %>%
+  mutate(district = ifelse(is.na(district), Location, district)) %>%
+  select(-Sample) %>%
+  rename(Sample = Sample2)
+
 # Plot Fraction of sites that are IBD
 IBD_meta_combined <- Pk.IBD %>%
     as.data.frame() %>%
@@ -339,13 +354,17 @@ IBD_meta_combined <- Pk.IBD %>%
       metadata %>%
         rename(sample1 = Sample) %>%
         rename(cluster1 = Cluster) %>%
-        rename(location1 = Location)
+        rename(district1 = district) %>% 
+        rename(state1 = State), 
+      by = "sample1"
     ) %>% 
     left_join(
       metadata %>%
         rename(sample2 = Sample) %>%
         rename(cluster2 = Cluster) %>%
-        rename(location2 = Location)
+        rename(district2 = district) %>% 
+        rename(state2 = State), 
+      by = "sample2" 
     )
   
 ## Fraction IBD within and between clusters
@@ -360,12 +379,12 @@ IBD_fract_plot <- IBD_meta_combined %>%
   scale_color_viridis_d() +
   ylab("Fraction of IBD sites")
 
-ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD/fract_IBD_clusters.png", dpi = 300, IBD_fract_plot)
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD/fract_IBD_clusters.png", dpi = 300, height = 7, width = 7, IBD_fract_plot)
 
-## Fraction IBD within and between locations
+## Fraction IBD within and between districts
 IBD_fract_plot <- IBD_meta_combined %>%
-  unite("Clusters", c("location1", "location2"), sep = "-") %>% 
-  ggplot(aes(x = Clusters, y = fract_sites_IBD, colour = Clusters)) +
+  unite("Districts", c("district1", "district2"), sep = "-") %>% 
+  ggplot(aes(x = Districts, y = fract_sites_IBD, colour = Districts)) +
   geom_boxplot() +
   theme(legend.position = "none", 
     legend.title = element_blank(), 
@@ -374,7 +393,7 @@ IBD_fract_plot <- IBD_meta_combined %>%
   scale_color_viridis_d() +
   ylab("Fraction of IBD sites")
 
-ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD/fract_IBD_locations.png", height = 20, dpi = 300, IBD_fract_plot)
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD/fract_IBD_locations.png", height = 30, dpi = 300, IBD_fract_plot)
 
 
 # Base plots
@@ -409,6 +428,78 @@ plot.IBD(
   "Cluster",
   legend.title = "Cluster"
 )
+
+# Base plots - districts
+Pk.label.cols <- c("district")
+Pk.legend.titles <- list("district" = "district")
+Pk.prefixes <- metadata %>% 
+  select(district) %>%
+  unique() %>% 
+  as.list()
+
+plot.IBDs(
+  Pk.prefixes,
+  IBD.cutoffs,
+  Pk.IBD,
+  metadata,
+  Pk.label.cols,
+  legend.titles = Pk.legend.titles
+)
+
+IBDs.plot.file <- "Major_IBDs_district.pdf"
+
+plot.IBD(
+  IBDs.plot.file,
+  Pk.IBD.cutoffs,
+  Pk.IBD,
+  metadata,
+  "district",
+  legend.title = "Districts"
+)
+
+
+# Base plots - states - might want to change the palette for fewer levels
+Pk.label.cols <- c("States")
+Pk.legend.titles <- list("States" = "States")
+Pk.prefixes <- metadata %>% 
+  select(State) %>%
+  unique() %>% 
+  as.list()
+
+plot.IBDs(
+  Pk.prefixes,
+  IBD.cutoffs,
+  Pk.IBD,
+  metadata,
+  Pk.label.cols,
+  legend.titles = Pk.legend.titles
+)
+
+
+IBDs.plot.file <- "Major_IBDs_States.pdf"
+
+plot.IBD(
+  IBDs.plot.file,
+  Pk.IBD.cutoffs,
+  Pk.IBD,
+  metadata,
+  "State",
+  legend.title = "States"
+)
+
+# Identify the two outlier at 3.42% - that connect the two clusters
+## Filter for state to state, calc mean and arrange in desc order
+IBD_meta_combined %>%
+  filter(cluster1 == "Mf" & cluster2 == "Mn") %>%
+  group_by(sample1) %>%
+  summarise(mean = mean(fract_sites_IBD)) %>%
+  arrange(desc(mean)) %>%
+  head(n=12)
+
+IBD_meta_combined %>%
+  filter(cluster1 == "Mf" & cluster2 == "Mn") %>%
+  filter(fract_sites_IBD >= 0.034) %>%
+  arrange(desc(fract_sites_IBD)) # the top two samples should be two in the plot that are closest to Mn
 
 
 ############################################# WORK IN PORGRESS

@@ -192,13 +192,13 @@ DATA %>%
 ERR985395 <- plot_baf_grid(baf_df, "ERR985395") + scale_x_continuous(name = "Fws=54", position = "top") 
 ERR985405 <- plot_baf_grid(baf_df, "ERR985405") + scale_x_continuous(name = "Fws=62", position = "top") 
 ERR2214850 <- plot_baf_grid(baf_df, "ERR2214850") + scale_x_continuous(name = "Fws=72", position = "top") 
-ERR985417 <- plot_baf_grid2(baf_df, "ERR985417") + scale_x_continuous(name = "Fws=84", position = "top") 
-ERR985376 <- plot_baf_grid2(baf_df, "ERR985376") + scale_x_continuous(name = "Fws=93", position = "top") 
+ERR985417 <- plot_baf_grid(baf_df, "ERR985417") + scale_x_continuous(name = "Fws=84", position = "top") 
+ERR985376 <- plot_baf_grid(baf_df, "ERR985376") + scale_x_continuous(name = "Fws=93", position = "top") 
 PK_SB_DNA_004 <- baf_df %>% 
     rename(PK_SB_DNA_004 = "PK_SB_DNA_004_DKDL210002133-1a_HWHGKDSXY_L4") %>% 
-    plot_baf_grid2(., "PK_SB_DNA_004") + scale_x_continuous(name = "Fws=99", position = "top") 
+    plot_baf_grid(., "PK_SB_DNA_004") + scale_x_continuous(name = "Fws=99", position = "top") 
 
-grid_plot <- grid.arrange(nrow = 2,
+grid_plot <- grid.arrange(nrow = 3,
     ERR985395,
     ERR985405,
     ERR2214850,
@@ -207,6 +207,6 @@ grid_plot <- grid.arrange(nrow = 2,
     PK_SB_DNA_004
     )
 
-ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/MAF-Fws_plots/grid_plot.png", width = 20, dpi = 300, grid_plot)
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/MAF-Fws_plots/grid_plot.png", width = 12, height = 10, dpi = 600, grid_plot)
 
 

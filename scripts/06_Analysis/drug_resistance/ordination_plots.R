@@ -84,6 +84,25 @@ NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = Cl
     
 ggsave("NJT_unrooted_05.png", dpi = 600, height = 15, width = 15, limitsize = FALSE, NJT_tree_plot)
 
+# 08
+NJT_ID <- read_table("DR_08.dist.id", col_names=F) %>%
+    as.data.frame() %>%
+    mutate_all(~str_remove(., "_DKD.*")) 
+
+NJT_matrix <- read_table("DR_08.dist", col_names=NJT_ID$X1) %>%
+    as.data.frame() %>%
+    add_column(Row_Names = NJT_ID$X1) %>%
+    column_to_rownames("Row_Names") %>%
+    as.matrix()
+
+NJT_tree <- nj(NJT_matrix)
+NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
+    theme(legend.position = "right", 
+        legend.title = element_blank(), 
+        legend.key = element_blank()) +
+    scale_color_manual(values = c("#440154FF", "#39568CFF", "#1F968BFF"))
+    
+ggsave("NJT_unrooted_08.png", dpi = 600, height = 15, width = 15, limitsize = FALSE, NJT_tree_plot)
 # 10
 NJT_ID <- read_table("DR_10.dist.id", col_names=F) %>%
     as.data.frame() %>%
