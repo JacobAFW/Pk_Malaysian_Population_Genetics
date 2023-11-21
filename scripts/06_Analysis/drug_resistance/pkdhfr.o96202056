@@ -1,0 +1,34 @@
+---------------------------------------
+PBS: Job identifier is 96202056.gadi-pbs
+PBS: Job name is pkdhfr
+---------------------------------------
+Define paths
+Loading bcftools/1.12
+  Loading requirement: intel-mkl/2020.3.304 python3/3.9.2
+---------------------------------------
+---------------------------------------
+Change to working directory and set env variables
+---------------------------------------
+---------------------------------------
+---------------------------------------
+---------------------------------------
+[E::idx_find_and_load] Could not retrieve index file for 'full_compressed.vcf.gz'
+Failed to read from full_compressed.vcf.gz: could not load index
+[E::idx_find_and_load] Could not retrieve index file for 'full_compressed_unfiltered.vcf.gz'
+Failed to read from full_compressed_unfiltered.vcf.gz: could not load index
+---------------------------------------
+---------------------------------------
+/local/spool/pbs/mom_priv/jobs/96202056.gadi-pbs.SC: line 36: FINSIHED: command not found
+
+======================================================================================
+                  Resource Usage on 2023-09-26 17:16:02:
+   Job Id:             96202056.gadi-pbs
+   Project:            pq84
+   Exit Status:        127
+   Service Units:      0.71
+   NCPUs Requested:    2                      NCPUs Used: 2               
+                                           CPU Time Used: 00:16:59        
+   Memory Requested:   16.0GB                Memory Used: 16.0GB          
+   Walltime requested: 48:00:00            Walltime Used: 00:17:01        
+   JobFS requested:    100.0MB                JobFS used: 0B              
+======================================================================================

@@ -1,0 +1,66 @@
+# Required tools/libraries for Analyses
+
+```{bash}
+module load bcftools/1.12
+module load java/jdk-8.40 
+module load R/4.1.0 
+export R_LIBS_USER="/g/data/pq84/R"
+export PATH=$PATH:/g/data/pq84/bin/plink2/
+
+FASTA="/g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/data/ref_genomes/PKA1H1/fasta"
+VCF="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/filtered/"
+GATK="/g/data/pq84/bin/GenomeAnalysisTK-3.8-1-0/GenomeAnalysisTK.jar"
+REGIONS_TO_MASK="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/regions_to_mask.list"
+
+cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses
+```
+
+
+# MAF filter for susbets 
+```{bash,eval=F}
+bcftools view PK_consensus_no_MOI.vcf -S hmmIBD/subsets/Mf_samples.txt --force-samples | bcftools +fill-tags -- -t AF | bcftools view -e "MAF<0.05" -o hmmIBD/subsets/method_2/Mf_subset.vcf.gz
+bcftools view PK_consensus_no_MOI.vcf -S hmmIBD/subsets/Mn_samples.txt --force-samples | bcftools +fill-tags -- -t AF | bcftools view -e "MAF<0.05" -o hmmIBD/subsets/method_2/Mn_subset.vcf.gz
+bcftools view PK_consensus_no_MOI.vcf -S hmmIBD/subsets/Pen_samples.txt --force-samples | bcftools +fill-tags -- -t AF | bcftools view -e "MAF<0.05" -o hmmIBD/subsets/method_2/Pen_subset.vcf.gz
+
+cd hmmIBD/subsets/method_2
+
+for i in .vcf.gz
+    do
+        bcftools index -t $i
+    done
+
+bcftools merge Mf_subset.vcf.gz Mn_subset.vcf.gz Pen_subset.vcf.gz | bcftools +fill-tags -o MAF_filtered_subset.vcf.gz -- -t AF
+
+bcftools view MAF_filtered_subset.vcf.gz | \
+    sed 's/AD,Number=R/AD,Number=./' | \
+    bcftools norm -m-any | \
+    bcftools norm --check-ref w -f $FASTA/strain_A1_H.1.Icor.fasta | \
+    bcftools annotate -Ob -x ID -I +'%CHROM:%POS:%REF:%ALT:%ID' \
+    > MAF_filtered_subset.bcf
+
+bcftools view MAF_filtered_subset.bcf | sed -n '/#CHROM/,$p' | head -n 1 | tr '\t' '\n' | sed -n '/FORMAT/,$p' | tail -n +2 | awk '{print $1 "\t" $1}' > MAF_filtered_sample_order.txt
+
+plink --bcf MAF_filtered_subset.bcf \
+    --keep-allele-order \
+    --vcf-idspace-to _ \
+    --double-id \
+    --allow-extra-chr 0 \
+    --make-bed \
+    --indiv-sort file MAF_filtered_sample_order.txt \
+    --exclude 'range' regions_to_mask.txt \
+    --allow-no-sex \
+    --out Pk
+
+plink --bfile Pk --recode --out Pk
+plink --file Pk --geno 0.25 --mind 0.25 --make-bed --out cleaned
+
+cat *_cleaned.bim | awk '{print $2}' | sed 's/:/\t/g' | awk '{print $1"\t"$2}' | sort -n | uniq > variant_positions_combined.tsv
+```
+
+
+# Submit PBS job for genotype file and hmmIBD - hmmIBD_geno.pbs
+```{R,eval=F}
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/hmmIBD_genotype_file_subset.R
+
+hmmIBD -i hmmIBD_subset.tsv -b /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD/exclude.txt  -o Pk_subset
+```

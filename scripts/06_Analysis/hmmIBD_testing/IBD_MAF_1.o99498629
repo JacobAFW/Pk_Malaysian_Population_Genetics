@@ -1,0 +1,256 @@
+---------------------------------------
+PBS: Job identifier is 99498629.gadi-pbs
+PBS: Job name is IBD_MAF_1
+---------------------------------------
+Set working env
+Loading bcftools/1.12
+  Loading requirement: intel-mkl/2020.3.304 python3/3.9.2
+mkdir: cannot create directory 'hmmIBD/subsets/': File exists
+---------------------------------------
+Generate VCF subsets & recalculate AF
+---------------------------------------
+Run through PLIN - generate bcf files
+[E::fai_build3_core] Failed to open the file /strain_A1_H.1.Icor.fasta
+Failed to load the fai index: /strain_A1_H.1.Icor.fasta
+Failed to read from standard input: unknown file type
+[E::fai_build3_core] Failed to open the file /strain_A1_H.1.Icor.fasta
+Failed to load the fai index: /strain_A1_H.1.Icor.fasta
+Failed to read from standard input: unknown file type
+[E::fai_build3_core] Failed to open the file /strain_A1_H.1.Icor.fasta
+Failed to load the fai index: /strain_A1_H.1.Icor.fasta
+Failed to read from standard input: unknown file type
+---------------------------------------
+Run through PLINK - generate PLINK data
+Failed to read from Mf_subset.bcf: unknown file type
+PLINK v1.90b6.24 64-bit (6 Jun 2021)           www.cog-genomics.org/plink/1.9/
+(C) 2005-2021 Shaun Purcell, Christopher Chang   GNU General Public License v3
+Logging to Mf_subset.plink.log.
+Options in effect:
+  --allow-extra-chr 0
+  --allow-no-sex
+  --bcf Mf_subset.bcf
+  --double-id
+  --exclude range regions_to_mask.txt
+  --indiv-sort file Mf_subset_sample_order.txt
+  --keep-allele-order
+  --make-bed
+  --out Mf_subset.plink
+  --vcf-idspace-to _
+
+128203 MB RAM detected; reserving 64101 MB for main workspace.
+Error: Improperly formatted .bcf file.
+Failed to read from Mn_subset.bcf: unknown file type
+PLINK v1.90b6.24 64-bit (6 Jun 2021)           www.cog-genomics.org/plink/1.9/
+(C) 2005-2021 Shaun Purcell, Christopher Chang   GNU General Public License v3
+Logging to Mn_subset.plink.log.
+Options in effect:
+  --allow-extra-chr 0
+  --allow-no-sex
+  --bcf Mn_subset.bcf
+  --double-id
+  --exclude range regions_to_mask.txt
+  --indiv-sort file Mn_subset_sample_order.txt
+  --keep-allele-order
+  --make-bed
+  --out Mn_subset.plink
+  --vcf-idspace-to _
+
+128203 MB RAM detected; reserving 64101 MB for main workspace.
+Error: Improperly formatted .bcf file.
+Failed to read from Pen_subset.bcf: unknown file type
+PLINK v1.90b6.24 64-bit (6 Jun 2021)           www.cog-genomics.org/plink/1.9/
+(C) 2005-2021 Shaun Purcell, Christopher Chang   GNU General Public License v3
+Logging to Pen_subset.plink.log.
+Options in effect:
+  --allow-extra-chr 0
+  --allow-no-sex
+  --bcf Pen_subset.bcf
+  --double-id
+  --exclude range regions_to_mask.txt
+  --indiv-sort file Pen_subset_sample_order.txt
+  --keep-allele-order
+  --make-bed
+  --out Pen_subset.plink
+  --vcf-idspace-to _
+
+128203 MB RAM detected; reserving 64101 MB for main workspace.
+Error: Improperly formatted .bcf file.
+---------------------------------------
+Run through PLINK - filter PLINK data
+PLINK v1.90b6.24 64-bit (6 Jun 2021)           www.cog-genomics.org/plink/1.9/
+(C) 2005-2021 Shaun Purcell, Christopher Chang   GNU General Public License v3
+Logging to Mf_subset.plink.log.
+Options in effect:
+  --bfile Mf_subset.plink
+  --out Mf_subset.plink
+  --recode
+
+128203 MB RAM detected; reserving 64101 MB for main workspace.
+1644007 variants loaded from .bim file.
+114 people (0 males, 0 females, 114 ambiguous) loaded from .fam.
+Ambiguous sex IDs written to Mf_subset.plink.nosex .
+Using 1 thread (no multithreaded calculations invoked).
+Before main variant filters, 114 founders and 0 nonfounders present.
+Calculating allele frequencies... 0%1%2%3%4%5%6%7%8%9%10%11%12%13%14%15%16%17%18%19%20%21%22%23%24%25%26%27%28%29%30%31%32%33%34%35%36%37%38%39%40%41%42%43%44%45%46%47%48%49%50%51%52%53%54%55%56%57%58%59%60%61%62%63%64%65%66%67%68%69%70%71%72%73%74%75%76%77%78%79%80%81%82%83%84%85%86%87%88%89%90%91%92%93%94%95%96%97%98%99% done.
+Total genotyping rate is 0.799147.
+1644007 variants and 114 people pass filters and QC.
+Note: No phenotypes present.
+--recode ped to Mf_subset.plink.ped + Mf_subset.plink.map ... 0%1%2%3%4%5%6%7%8%9%10%11%12%13%14%15%16%17%18%19%20%21%22%23%24%25%26%27%28%29%30%31%32%33%34%35%36%37%38%39%40%41%42%43%44%45%46%47%48%49%50%51%52%53%54%55%56%57%58%59%60%61%62%63%64%65%66%67%68%69%70%71%72%73%74%75%76%77%78%79%80%81%82%83%84%85%86%87%88%89%90%91%92%93%94%95%96%97%98%99%done.
+PLINK v1.90b6.24 64-bit (6 Jun 2021)           www.cog-genomics.org/plink/1.9/
+(C) 2005-2021 Shaun Purcell, Christopher Chang   GNU General Public License v3
+Logging to Mf_subset.plink_cleaned.log.
+Options in effect:
+  --file Mf_subset.plink
+  --geno 0.25
+  --maf 0.05
+  --make-bed
+  --mind 0.25
+  --out Mf_subset.plink_cleaned
+
+128203 MB RAM detected; reserving 64101 MB for main workspace.
+Scanning .ped file... 0%1%2%3%4%5%6%7%7%8%9%10%11%12%13%14%14%15%16%17%18%19%20%21%21%22%23%24%25%26%27%28%28%29%30%31%32%33%34%35%35%36%37%38%39%40%41%42%42%43%44%45%46%47%48%49%49%50%51%52%53%54%55%56%57%57%58%59%60%61%62%63%64%64%65%66%67%68%69%70%71%71%72%73%74%75%76%77%78%78%79%80%81%82%83%84%85%85%86%87%88%89%90%91%92%92%93%94%95%96%97%98%99%100%.ped scan complete (for binary autoconversion).
+Performing single-pass .bed write (1644007 variants, 114 people).
+0%1%2%3%4%5%6%7%8%9%10%11%12%13%14%15%16%17%18%19%20%21%22%23%24%25%26%27%28%29%30%31%32%33%34%35%36%37%38%39%40%41%42%43%44%45%46%47%48%49%50%51%52%53%54%55%56%57%58%59%60%61%62%63%64%65%66%67%68%69%70%71%72%73%74%75%76%77%78%79%80%81%82%83%84%85%86%87%88%89%90%91%92%93%94%--file: Mf_subset.plink_cleaned-temporary.bed +
+Mf_subset.plink_cleaned-temporary.bim + Mf_subset.plink_cleaned-temporary.fam
+written.
+1644007 variants loaded from .bim file.
+114 people (0 males, 0 females, 114 ambiguous) loaded from .fam.
+Ambiguous sex IDs written to Mf_subset.plink_cleaned.nosex .
+33 people removed due to missing genotype data (--mind).
+IDs written to Mf_subset.plink_cleaned.irem .
+Using 1 thread (no multithreaded calculations invoked).
+Before main variant filters, 81 founders and 0 nonfounders present.
+Calculating allele frequencies... 0%1%2%3%4%5%6%7%8%9%10%11%12%13%14%15%16%17%18%19%20%21%22%23%24%25%26%27%28%29%30%31%32%33%34%35%36%37%38%39%40%41%42%43%44%45%46%47%48%49%50%51%52%53%54%55%56%57%58%59%60%61%62%63%64%65%66%67%68%69%70%71%72%73%74%75%76%77%78%79%80%81%82%83%84%85%86%87%88%89%90%91%92%93%94%95%96%97%98%99% done.
+Total genotyping rate in remaining samples is 0.967641.
+42593 variants removed due to missing genotype data (--geno).
+1366961 variants removed due to minor allele threshold(s)
+(--maf/--max-maf/--mac/--max-mac).
+234453 variants and 81 people pass filters and QC.
+Note: No phenotypes present.
+--make-bed to Mf_subset.plink_cleaned.bed + Mf_subset.plink_cleaned.bim +
+Mf_subset.plink_cleaned.fam ... 0%1%2%3%4%5%6%7%8%9%10%11%12%13%14%15%16%17%18%19%20%21%22%23%24%25%26%27%28%29%30%31%32%33%34%35%36%37%38%39%40%41%42%43%44%45%46%47%48%49%50%51%52%53%54%55%56%57%58%59%60%61%62%63%64%65%66%67%68%69%70%71%72%73%74%75%76%77%78%79%80%81%82%83%84%85%86%87%88%89%90%91%92%93%94%95%96%97%98%99%done.
+PLINK v1.90b6.24 64-bit (6 Jun 2021)           www.cog-genomics.org/plink/1.9/
+(C) 2005-2021 Shaun Purcell, Christopher Chang   GNU General Public License v3
+Logging to Mn_subset.plink.log.
+Options in effect:
+  --bfile Mn_subset.plink
+  --out Mn_subset.plink
+  --recode
+
+128203 MB RAM detected; reserving 64101 MB for main workspace.
+1644007 variants loaded from .bim file.
+38 people (0 males, 0 females, 38 ambiguous) loaded from .fam.
+Ambiguous sex IDs written to Mn_subset.plink.nosex .
+Using 1 thread (no multithreaded calculations invoked).
+Before main variant filters, 38 founders and 0 nonfounders present.
+Calculating allele frequencies... 0%1%2%3%4%5%6%7%8%9%10%11%12%13%14%15%16%17%18%19%20%21%22%23%24%25%26%27%28%29%30%31%32%33%34%35%36%37%38%39%40%41%42%43%44%45%46%47%48%49%50%51%52%53%54%55%56%57%58%59%60%61%62%63%64%65%66%67%68%69%70%71%72%73%74%75%76%77%78%79%80%81%82%83%84%85%86%87%88%89%90%91%92%93%94%95%96%97%98%99% done.
+Total genotyping rate is 0.975639.
+1644007 variants and 38 people pass filters and QC.
+Note: No phenotypes present.
+--recode ped to Mn_subset.plink.ped + Mn_subset.plink.map ... 0%1%2%3%4%5%6%7%8%9%10%11%12%13%14%15%16%17%18%19%20%21%22%23%24%25%26%27%28%29%30%31%32%33%34%35%36%37%38%39%40%41%42%43%44%45%46%47%48%49%50%51%52%53%54%55%56%57%58%59%60%61%62%63%64%65%66%67%68%69%70%71%72%73%74%75%76%77%78%79%80%81%82%83%84%85%86%87%88%89%90%91%92%93%94%95%96%97%98%99%done.
+PLINK v1.90b6.24 64-bit (6 Jun 2021)           www.cog-genomics.org/plink/1.9/
+(C) 2005-2021 Shaun Purcell, Christopher Chang   GNU General Public License v3
+Logging to Mn_subset.plink_cleaned.log.
+Options in effect:
+  --file Mn_subset.plink
+  --geno 0.25
+  --maf 0.05
+  --make-bed
+  --mind 0.25
+  --out Mn_subset.plink_cleaned
+
+128203 MB RAM detected; reserving 64101 MB for main workspace.
+Scanning .ped file... 0%2%5%7%10%13%15%18%21%23%26%28%31%34%36%39%42%44%47%49%52%55%57%60%63%65%68%71%73%76%78%81%84%86%89%92%94%97%100%.ped scan complete (for binary autoconversion).
+Performing single-pass .bed write (1644007 variants, 38 people).
+0%1%2%3%4%5%6%7%8%9%10%11%12%13%14%15%16%17%18%19%20%21%22%23%24%25%26%27%28%29%30%31%32%33%34%35%36%37%38%39%40%41%42%43%44%45%46%47%48%49%50%51%52%53%54%55%56%57%58%59%60%61%62%63%64%65%66%67%68%69%70%71%72%73%74%75%76%77%78%79%80%81%82%83%84%85%86%87%88%89%90%91%92%93%94%--file: Mn_subset.plink_cleaned-temporary.bed +
+Mn_subset.plink_cleaned-temporary.bim + Mn_subset.plink_cleaned-temporary.fam
+written.
+1644007 variants loaded from .bim file.
+38 people (0 males, 0 females, 38 ambiguous) loaded from .fam.
+Ambiguous sex IDs written to Mn_subset.plink_cleaned.nosex .
+0 people removed due to missing genotype data (--mind).
+Using 1 thread (no multithreaded calculations invoked).
+Before main variant filters, 38 founders and 0 nonfounders present.
+Calculating allele frequencies... 0%1%2%3%4%5%6%7%8%9%10%11%12%13%14%15%16%17%18%19%20%21%22%23%24%25%26%27%28%29%30%31%32%33%34%35%36%37%38%39%40%41%42%43%44%45%46%47%48%49%50%51%52%53%54%55%56%57%58%59%60%61%62%63%64%65%66%67%68%69%70%71%72%73%74%75%76%77%78%79%80%81%82%83%84%85%86%87%88%89%90%91%92%93%94%95%96%97%98%99% done.
+Total genotyping rate is 0.975639.
+17307 variants removed due to missing genotype data (--geno).
+1430763 variants removed due to minor allele threshold(s)
+(--maf/--max-maf/--mac/--max-mac).
+195937 variants and 38 people pass filters and QC.
+Note: No phenotypes present.
+--make-bed to Mn_subset.plink_cleaned.bed + Mn_subset.plink_cleaned.bim +
+Mn_subset.plink_cleaned.fam ... 0%1%2%3%4%5%6%7%8%9%10%11%12%13%14%15%16%17%18%19%20%21%22%23%24%25%26%27%28%29%30%31%32%33%34%35%36%37%38%39%40%41%42%43%44%45%46%47%48%49%50%51%52%53%54%55%56%57%58%59%60%61%62%63%64%65%66%67%68%69%70%71%72%73%74%75%76%77%78%79%80%81%82%83%84%85%86%87%88%89%90%91%92%93%94%95%96%97%98%99%done.
+PLINK v1.90b6.24 64-bit (6 Jun 2021)           www.cog-genomics.org/plink/1.9/
+(C) 2005-2021 Shaun Purcell, Christopher Chang   GNU General Public License v3
+Logging to Pen_subset.plink.log.
+Options in effect:
+  --bfile Pen_subset.plink
+  --out Pen_subset.plink
+  --recode
+
+128203 MB RAM detected; reserving 64101 MB for main workspace.
+1644007 variants loaded from .bim file.
+33 people (0 males, 0 females, 33 ambiguous) loaded from .fam.
+Ambiguous sex IDs written to Pen_subset.plink.nosex .
+Using 1 thread (no multithreaded calculations invoked).
+Before main variant filters, 33 founders and 0 nonfounders present.
+Calculating allele frequencies... 0%1%2%3%4%5%6%7%8%9%10%11%12%13%14%15%16%17%18%19%20%21%22%23%24%25%26%27%28%29%30%31%32%33%34%35%36%37%38%39%40%41%42%43%44%45%46%47%48%49%50%51%52%53%54%55%56%57%58%59%60%61%62%63%64%65%66%67%68%69%70%71%72%73%74%75%76%77%78%79%80%81%82%83%84%85%86%87%88%89%90%91%92%93%94%95%96%97%98%99% done.
+Total genotyping rate is 0.995387.
+1644007 variants and 33 people pass filters and QC.
+Note: No phenotypes present.
+--recode ped to Pen_subset.plink.ped + Pen_subset.plink.map ... 0%1%2%3%4%5%6%7%8%9%10%11%12%13%14%15%16%17%18%19%20%21%22%23%24%25%26%27%28%29%30%31%32%33%34%35%36%37%38%39%40%41%42%43%44%45%46%47%48%49%50%51%52%53%54%55%56%57%58%59%60%61%62%63%64%65%66%67%68%69%70%71%72%73%74%75%76%77%78%79%80%81%82%83%84%85%86%87%88%89%90%91%92%93%94%95%96%97%98%99%done.
+PLINK v1.90b6.24 64-bit (6 Jun 2021)           www.cog-genomics.org/plink/1.9/
+(C) 2005-2021 Shaun Purcell, Christopher Chang   GNU General Public License v3
+Logging to Pen_subset.plink_cleaned.log.
+Options in effect:
+  --file Pen_subset.plink
+  --geno 0.25
+  --maf 0.05
+  --make-bed
+  --mind 0.25
+  --out Pen_subset.plink_cleaned
+
+128203 MB RAM detected; reserving 64101 MB for main workspace.
+Scanning .ped file... 0%3%6%9%12%15%18%21%24%27%30%33%36%39%42%45%48%51%54%57%60%63%66%69%72%75%78%81%84%87%90%93%96%100%.ped scan complete (for binary autoconversion).
+Performing single-pass .bed write (1644007 variants, 33 people).
+0%1%2%3%4%5%6%7%8%9%10%11%12%13%14%15%16%17%18%19%20%21%22%23%24%25%26%27%28%29%30%31%32%33%34%35%36%37%38%39%40%41%42%43%44%45%46%47%48%49%50%51%52%53%54%55%56%57%58%59%60%61%62%63%64%65%66%67%68%69%70%71%72%73%74%75%76%77%78%79%80%81%82%83%84%85%86%87%88%89%90%91%92%93%94%--file: Pen_subset.plink_cleaned-temporary.bed +
+Pen_subset.plink_cleaned-temporary.bim + Pen_subset.plink_cleaned-temporary.fam
+written.
+1644007 variants loaded from .bim file.
+33 people (0 males, 0 females, 33 ambiguous) loaded from .fam.
+Ambiguous sex IDs written to Pen_subset.plink_cleaned.nosex .
+0 people removed due to missing genotype data (--mind).
+Using 1 thread (no multithreaded calculations invoked).
+Before main variant filters, 33 founders and 0 nonfounders present.
+Calculating allele frequencies... 0%1%2%3%4%5%6%7%8%9%10%11%12%13%14%15%16%17%18%19%20%21%22%23%24%25%26%27%28%29%30%31%32%33%34%35%36%37%38%39%40%41%42%43%44%45%46%47%48%49%50%51%52%53%54%55%56%57%58%59%60%61%62%63%64%65%66%67%68%69%70%71%72%73%74%75%76%77%78%79%80%81%82%83%84%85%86%87%88%89%90%91%92%93%94%95%96%97%98%99% done.
+Total genotyping rate is 0.995387.
+8242 variants removed due to missing genotype data (--geno).
+1198548 variants removed due to minor allele threshold(s)
+(--maf/--max-maf/--mac/--max-mac).
+437217 variants and 33 people pass filters and QC.
+Note: No phenotypes present.
+--make-bed to Pen_subset.plink_cleaned.bed + Pen_subset.plink_cleaned.bim +
+Pen_subset.plink_cleaned.fam ... 0%1%2%3%4%5%6%7%8%9%10%11%12%13%14%15%16%17%18%19%20%21%22%23%24%25%26%27%28%29%30%31%32%33%34%35%36%37%38%39%40%41%42%43%44%45%46%47%48%49%50%51%52%53%54%55%56%57%58%59%60%61%62%63%64%65%66%67%68%69%70%71%72%73%74%75%76%77%78%79%80%81%82%83%84%85%86%87%88%89%90%91%92%93%94%95%96%97%98%99%done.
+---------------------------------------
+Create unique variant set
+---------------------------------------
+Use the above variant set for the genotype set
+Fatal error: cannot open file '/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/hmmIBD_genotype_file_subset.R': No such file or directory
+---------------------------------------
+Run hmmIBD
+/local/spool/pbs/mom_priv/jobs/99498629.gadi-pbs.SC: line 93: hmmIBD: command not found
+---------------------------------------
+Run through PLINK - FINISHED
+
+======================================================================================
+                  Resource Usage on 2023-10-31 16:58:41:
+   Job Id:             99498629.gadi-pbs
+   Project:            pq84
+   Exit Status:        0
+   Service Units:      1.56
+   NCPUs Requested:    5                      NCPUs Used: 5               
+                                           CPU Time Used: 00:16:02        
+   Memory Requested:   40.0GB                Memory Used: 10.36GB         
+   Walltime requested: 06:00:00            Walltime Used: 00:14:59        
+   JobFS requested:    100.0MB                JobFS used: 0B              
+======================================================================================

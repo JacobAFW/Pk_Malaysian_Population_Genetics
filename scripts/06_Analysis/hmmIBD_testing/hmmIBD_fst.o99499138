@@ -1,0 +1,57 @@
+---------------------------------------
+PBS: Job identifier is 99499138.gadi-pbs
+PBS: Job name is hmmIBD_fst
+---------------------------------------
+Set working env
+Loading bcftools/1.12
+  Loading requirement: intel-mkl/2020.3.304 python3/3.9.2
+---------------------------------------
+Use the above variant set for the genotype set
+
+Attaching package: 'dplyr'
+
+The following objects are masked from 'package:stats':
+
+    filter, lag
+
+The following objects are masked from 'package:base':
+
+    intersect, setdiff, setequal, union
+
+
+Attaching package: 'data.table'
+
+The following objects are masked from 'package:dplyr':
+
+    between, first, last
+
+Rows: 188557 Columns: 2
+-- Column specification --------------------------------------------------------
+Delimiter: "\t"
+chr (1): CHROM
+dbl (1): POS
+
+i Use `spec()` to retrieve the full column specification for this data.
+i Specify the column types or set `show_col_types = FALSE` to quiet this message.
+
+-- Column specification --------------------------------------------------------
+cols(
+  .default = col_character(),
+  POS = col_double(),
+  QUAL = col_double()
+)
+i Use `spec()` for the full column specifications.
+
+
+======================================================================================
+                  Resource Usage on 2023-10-31 16:55:20:
+   Job Id:             99499138.gadi-pbs
+   Project:            pq84
+   Exit Status:        271 (Linux Signal 15 SIGTERM Termination)
+   Service Units:      0.20
+   NCPUs Requested:    5                      NCPUs Used: 5               
+                                           CPU Time Used: 00:01:15        
+   Memory Requested:   40.0GB                Memory Used: 3.35GB          
+   Walltime requested: 09:00:00            Walltime Used: 00:01:56        
+   JobFS requested:    100.0MB                JobFS used: 0B              
+======================================================================================

@@ -555,7 +555,7 @@ write_csv(miss_summary, "pk_miss_summary.csv")
  - recode generates new .ped and .map files
  - --make-bed generates .bed, .bim and .fam files
  - -mind filters per sample (missingness)
- - -geno filters per variant (missingness
+ - -geno filters per variant (missingness)
 
 **FILTERED:**
  - exclude variants with > 25% missing alleles
@@ -3733,7 +3733,6 @@ annotation <- read_table("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/
   mutate(POS = as.numeric(POS))
 
 # Left join annotation & genotype file & filter out synomynous variants 
-# Left join annotation & genotype file & filter out synomynous variants 
 annotated_orthologue_genes <- orthologue_genes %>%
   left_join(annotation) %>%
   filter(!grepl("synonymous_variant", Consequence)) %>%
@@ -3741,6 +3740,55 @@ annotated_orthologue_genes <- orthologue_genes %>%
   filter(!grepl("upstream_gene_variant", Consequence)) %>%
   filter(!grepl("intron_variant", Consequence)) %>%
   filter(!grepl("stop_retained_variant", Consequence))
+
+annotated_orthologue_genes %>%
+  filter(Gene == "PKA1H_140035100") %>% 
+  pivot_longer(3:187, names_to = "Sample", values_to = "SNP") %>% 
+  select(POS, Consequence, SNP, Sample) %>%
+  group_by(POS, Consequence, Sample) %>% 
+  summarise(SNP = mean(SNP)) %>%
+  group_by(POS, Consequence) %>% 
+  summarise(total_snp_prop = sum(SNP == 1)/nrow(annotated_orthologue_genes %>% 
+    filter(Gene == "PKA1H_140035100") %>% 
+    pivot_longer(3:187, names_to = "Sample", values_to = "SNP") %>%
+    select(Sample) %>% 
+    unique())) #%>% write_tsv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/drug_resistance/prop_pvdhps_snps.tsv")
+
+# double check dominant
+annotated_orthologue_genes %>%
+  filter(Gene == "PKA1H_140035100") %>% 
+  pivot_longer(3:187, names_to = "Sample", values_to = "SNP") %>% 
+  select(POS, Consequence, SNP, Sample) %>% 
+  filter(POS == 1309752) %>% 
+  group_by(Sample) %>% 
+  summarise(mean = mean(SNP)) %>% 
+  summarise(sum(mean == 1)/nrow(.))
+
+# calculate for clusters
+annotated_orthologue_genes %>%
+  filter(Gene == "PKA1H_140035100") %>% 
+  pivot_longer(3:187, names_to = "Sample", values_to = "SNP") %>% 
+  select(POS, Consequence, SNP, Sample) %>%
+  filter(POS == 1309410) %>% # overlap with Pv
+  group_by(Sample) %>% 
+  summarise(mean = mean(SNP)) %>%
+  mutate(Sample = str_remove(Sample, "_DK.*")) %>%
+  left_join(Metadata) %>% 
+  group_by(Cluster) %>%
+  summarise(clust_prop = sum(mean == 1)/n()*100)
+
+annotated_orthologue_genes %>%
+  filter(Gene == "PKA1H_140035100") %>% 
+  pivot_longer(3:187, names_to = "Sample", values_to = "SNP") %>% 
+  group_by(Sample) %>%
+  summarise(total_snp = sum(SNP == 1)) %>%
+  summary(total_snp)
+
+annotated_orthologue_genes %>%
+  filter(Gene == "PKA1H_050015200") %>% 
+  pivot_longer(3:187, names_to = "Sample", values_to = "SNP") %>% 
+  group_by(Sample) %>%
+  summarise(mean = mean(SNP)) 
 
 # Export Pk variants
 annotated_orthologue_genes %>% 
@@ -3951,22 +3999,27 @@ while read WINDOW CHROM start end; do
   echo "$CHROM  $start  $end  Include" > Introgression/NJT_data/${WINDOW}.txt
 done <Introgression/tree_windows.tsv
 
-for i in Introgression/NJT_data/*.txt
+cd Introgression/NJT_data/
+rm -f WINDOW.txt
+
+ANALYSES="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/"
+
+for i in *.txt
   do
-    plink --bcf PK_consensus_filtered_pass.bcf \
+    plink --bcf $ANALYSES/PK_consensus_filtered_pass.bcf \
     --keep-allele-order \
     --vcf-idspace-to _ \
     --double-id \
     --allow-extra-chr 0 \
     --make-bed \
-    --indiv-sort file sample_order.txt \
+    --indiv-sort file $ANALYSES/sample_order.txt \
     --extract 'range' $i \
     --allow-no-sex \
     --out Pk
 
     plink --bfile Pk --recode --out Pk
     plink --file Pk --maf 0.05 --geno 0.25 --mind 0.25 --make-bed --out cleaned
-    plink --bfile cleaned --distance square --out Introgression/NJT_data/${i%.txt}.NJT
+    plink --bfile cleaned --distance square --out ${i%.txt}.NJT
 done
 
 

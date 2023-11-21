@@ -1,0 +1,33 @@
+# Required tools/libraries for Analyses
+
+```{bash}
+module load bcftools/1.12
+module load java/jdk-8.40 
+module load R/4.1.0 
+export R_LIBS_USER="/g/data/pq84/R"
+export PATH=$PATH:/g/data/pq84/bin/plink2/
+
+FASTA="/g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/data/ref_genomes/PKA1H1/fasta"
+VCF="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/filtered/"
+GATK="/g/data/pq84/bin/GenomeAnalysisTK-3.8-1-0/GenomeAnalysisTK.jar"
+REGIONS_TO_MASK="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/regions_to_mask.list"
+
+cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses
+```
+
+# Apply filters based on MAF, genotypic missingess and Fsw
+
+```{bash,eval=F}
+plink --bfile Pk --recode --out Pk
+plink --file Pk --maf 0.05 --geno 0.01 --mind 0.25 --make-bed --out hmmIBD/geno_test/cleaned
+
+cat cleaned.bim | awk '{print $2}' | sed 's/:/\t/g' | awk '{print $1"\t"$2}' | sort -n | uniq > hmmIBD/geno_test/variant_positions.tsv
+```
+
+
+# Submit PBS job for genotype file and hmmIBD - hmmIBD_geno.pbs
+```{R,eval=F}
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/hmmIBD_testing/hmmIBD_genotype_file_geno.R
+
+hmmIBD -i hmmIBD.tsv -b /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD/exclude.txt -o Pk
+```

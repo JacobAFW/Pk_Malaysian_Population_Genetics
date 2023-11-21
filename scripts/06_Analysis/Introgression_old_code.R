@@ -1015,3 +1015,107 @@ introgressed_windows_meta %>%
     group_by(Cluster) %>% 
     summarise(mean = mean(n), median = median(n), sd = sd(n), n = n()) %>% # number of windows
     arrange(desc(median)) #%>% write_tsv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Introgression/average_windows_for_clusters.tsv")
+
+
+
+
+
+
+# Old tree plots
+
+## generate tree plots
+NJT_ID <- read_table("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk.dist.id", col_names=F) %>%
+    as.data.frame() %>%
+    mutate_all(~str_remove(., "_DKD.*")) 
+
+NJT_matrix <- read_table("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk.dist", col_names=NJT_ID$X1) %>%
+    as.data.frame() %>%
+    add_column(Row_Names = NJT_ID$X1) %>%
+    column_to_rownames("Row_Names") %>%
+    as.matrix()
+
+NJT_tree <- nj(NJT_matrix)
+
+NJT_tree_plot <- ggtree(NJT_tree, layout = "daylight", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
+    theme(legend.position = "right", 
+        legend.title = element_blank(), 
+        legend.key = element_blank()) +
+    scale_color_manual(values = c("#440154FF", "#73D055FF", "#39568CFF"))
+    
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Introgression/tree_plots/NJT_tree_window_1204_Mn_unrooted.png", dpi = 300, height = 15, width = 15, limitsize = FALSE, NJT_tree_plot)
+
+NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
+    theme(legend.position = "right", 
+    legend.title = element_blank(), 
+    legend.key = element_blank()) +
+    geom_tiplab(size = 2) +
+    scale_color_manual(values = c("#440154FF", "#73D055FF", "#39568CFF"))
+
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Introgression/tree_plots/NJT_tree_window_1204_Mn_unrooted_labelled.png", dpi = 300, height = 20, width = 20, limitsize = FALSE, NJT_tree_plot)
+
+
+# Get functional annotation for top windows from GFF
+read_tsv("Introgression/Mf_major_windows_Sarawak_samples.tsv") %>%
+    add_column(Cluster = "Mf") %>% 
+    add_column(State = "Sarawak") %>% 
+    rbind(
+        read_tsv("Introgression/Mn_major_windows_Sarawak_samples.tsv") %>%
+            add_column(Cluster = "Mn") %>% 
+            add_column(State = "Sarawak")
+    ) %>% 
+    rbind(
+        read_tsv("Introgression/Mf_major_windows_Sabah_samples.tsv") %>% 
+            add_column(Cluster = "Mf") %>% 
+            add_column(State = "Sabah")
+    ) %>% 
+    rbind(
+        read_tsv("Introgression/Mn_major_windows_Sabah_samples.tsv") %>% 
+            add_column(Cluster = "Mn") %>% 
+            add_column(State = "Sabah")
+    ) %>% 
+
+
+
+
+
+# SNP matrix with asterics 
+
+#############################
+clust_data <- SNP_barcode_table %>% 
+  filter(CHROM == "11" & POS > 1440000	& POS < 1449999) %>%
+  select(CHROM, POS, SAMPLE, SNP) %>% 
+  pivot_wider(names_from = SAMPLE, values_from = SNP) 
+  
+clust <- clust_data %>%
+  select(-c(1:2)) %>% 
+  t() %>% # each row is a sample and each column a SNP positon 
+  dist() %>%
+  hclust() #euclidean distance
+
+sample_order <- as.data.frame(clust$labels[c(clust$order)]) %>% 
+  rename(SAMPLE = "clust$labels[c(clust$order)]") %>% 
+  filter(SAMPLE != "CHROM" & SAMPLE != "POS") %>% 
+  add_column(SAMPLE_2 = 1:nrow(.)) %>% 
+  mutate(SAMPLE_2 = as.factor(SAMPLE_2))
+
+SNP_barcode_table <- SNP_barcode_table %>% 
+  filter(CHROM == "11" & POS > 1440000	& POS < 1449999) %>%
+    left_join(sample_order)
+
+introgressed_samples <- introgressed_windows_meta_Mn_to_Mf  %>% 
+    filter(WINDOW == 1440) 
+
+snp_barcode_plot <- SNP_barcode_table %>% 
+  filter(CHROM == "11" & POS > 1440000	& POS < 1449999) %>%
+  ggplot(aes(x = POS, y = SAMPLE_2, fill = Cluster, alpha = SNP, group = Cluster)) +
+  geom_col() +
+  scale_fill_manual(values = c("#440154FF", "#73D055FF", "#39568CFF")) +
+  theme(axis.text.y=element_blank(), axis.ticks.y=element_blank(),
+       axis.text.x=element_blank(), axis.ticks.x=element_blank()) +
+  scale_alpha(guide = 'none') +
+  ylab("Sample") +
+  xlab("Chromosome Position") +
+  geom_text(aes(label = ifelse(SAMPLE %in% introgressed_samples$SAMPLE, "***", '')), size = 2, hjust = 2)
+
+ggsave("Introgression/snp_barcodes/1440_snp_barcode_clustered_2.png", dpi = 300, width = 10, snp_barcode_plot)
+

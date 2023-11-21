@@ -1,0 +1,106 @@
+---------------------------------------
+PBS: Job identifier is 99083511.gadi-pbs
+PBS: Job name is hmmIBD_geno
+---------------------------------------
+Set working env
+Loading bcftools/1.12
+  Loading requirement: intel-mkl/2020.3.304 python3/3.9.2
+---------------------------------------
+Use the above variant set for the genotype set
+
+Attaching package: 'dplyr'
+
+The following objects are masked from 'package:stats':
+
+    filter, lag
+
+The following objects are masked from 'package:base':
+
+    intersect, setdiff, setequal, union
+
+
+Attaching package: 'data.table'
+
+The following objects are masked from 'package:dplyr':
+
+    between, first, last
+
+Rows: 286373 Columns: 2
+-- Column specification --------------------------------------------------------
+Delimiter: "\t"
+chr (1): CHROM
+dbl (1): POS
+
+i Use `spec()` to retrieve the full column specification for this data.
+i Specify the column types or set `show_col_types = FALSE` to quiet this message.
+
+-- Column specification --------------------------------------------------------
+cols(
+  .default = col_character(),
+  POS = col_double(),
+  QUAL = col_double()
+)
+i Use `spec()` for the full column specifications.
+
+Joining, by = c("CHROM", "POS")
+---------------------------------------
+Run hmmIBD
+killing sample PK_SB_DNA_004_DKDL210002133-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_007_DKDL210002136-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_012_DKDL210002141-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_017_DKDL210002146-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_018_DKDL210002147-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_019_DKDL210002148-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_020_DKDL210002149-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_022_DKDL210002151-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_024_DKDL210002153-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_025_DKDL210002154-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_026_DKDL210002155-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_027_DKDL210002156-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_033_DKDL210002162-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_037_DKDL210002166-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_041_DKDL210002170-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_050_DKDL210002179-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_056_DKDL210002185-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_058_DKDL210002187-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_059_DKDL210002188-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_060_DKDL210002189-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_061_DKDL210002190-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_062_DKDL210002191-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_064_DKDL210002193-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_065_DKDL210002194-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_066_DKDL210002195-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_071_DKDL210002200-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_075_DKDL210002204-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_076_DKDL210002205-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_078_DKDL210002207-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_079_DKDL210002208-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_080_DKDL210002209-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_084_DKDL210002213-1a_HWHGKDSXY_L4
+killing sample PK_SB_DNA_085_DKDL210002214-1a_HWHGKDSXY_L4
+Maximum fit iterations allowed: 5
+Minimum marker spacing (bp): 5
+Minimum informative markers: 10
+Pairs accepted with discordance in range (0.00%, 100.00%)
+Genotyping error rate: 0.10%
+Input file: hmmIBD.tsv
+Frequency files: none and none
+pop1 nsample: 185 used: 152 Expected pairs: 11476
+Variants skipped for spacing: 31423
+254950 variants used,	36793 with >2 alleles
+sample pairs analyzed (filtered for discordance and informative markers): 11476
+---------------------------------------
+ FINISHED
+
+======================================================================================
+                  Resource Usage on 2023-10-27 14:08:58:
+   Job Id:             99083511.gadi-pbs
+   Project:            pq84
+   Exit Status:        0
+   Service Units:      7.10
+   NCPUs Requested:    5                      NCPUs Used: 5               
+                                           CPU Time Used: 01:07:30        
+   Memory Requested:   40.0GB                Memory Used: 15.3GB          
+   Walltime requested: 24:00:00            Walltime Used: 01:08:10        
+   JobFS requested:    100.0MB                JobFS used: 0B              
+======================================================================================

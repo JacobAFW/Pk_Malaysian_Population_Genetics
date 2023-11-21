@@ -1,0 +1,46 @@
+---------------------------------------
+PBS: Job identifier is 98311159.gadi-pbs
+PBS: Job name is hmmIBD_using_subset_filters
+---------------------------------------
+Set working env
+---------------------------------------
+Create VCF tsv file for hmmIBD
+---------------------------------------
+
+Attaching package: 'dplyr'
+
+The following objects are masked from 'package:stats':
+
+    filter, lag
+
+The following objects are masked from 'package:base':
+
+    intersect, setdiff, setequal, union
+
+
+Attaching package: 'data.table'
+
+The following objects are masked from 'package:dplyr':
+
+    between, first, last
+
+Error: 'variant_positions_combined.txt' does not exist in current working directory ('/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD/subsets').
+Execution halted
+---------------------------------------
+Run hmmIBD
+Could not open input file hmmIBD_subset.tsv
+---------------------------------------
+Finished
+
+======================================================================================
+                  Resource Usage on 2023-10-17 15:09:02:
+   Job Id:             98311159.gadi-pbs
+   Project:            pq84
+   Exit Status:        0
+   Service Units:      0.02
+   NCPUs Requested:    5                      NCPUs Used: 5               
+                                           CPU Time Used: 00:00:02        
+   Memory Requested:   40.0GB                Memory Used: 328.99MB        
+   Walltime requested: 24:00:00            Walltime Used: 00:00:12        
+   JobFS requested:    100.0MB                JobFS used: 0B              
+======================================================================================

@@ -1,0 +1,86 @@
+---------------------------------------
+PBS: Job identifier is 99494107.gadi-pbs
+PBS: Job name is IBD_MAF
+---------------------------------------
+Set working env
+Loading bcftools/1.12
+  Loading requirement: intel-mkl/2020.3.304 python3/3.9.2
+---------------------------------------
+MAF filters
+index: failed to open .vcf.gz
+---------------------------------------
+Merge subsets
+[E::idx_find_and_load] Could not retrieve index file for 'Mf_subset.vcf.gz'
+Failed to open Mf_subset.vcf.gz: could not load index
+Failed to read from standard input: unknown file type
+---------------------------------------
+Create bcf
+[E::hts_open_format] Failed to open file "MAF_filtered_subset.vcf.gz" : No such file or directory
+Failed to read from MAF_filtered_subset.vcf.gz: No such file or directory
+Failed to read from standard input: unknown file type
+Failed to read from standard input: unknown file type
+Failed to read from standard input: unknown file type
+---------------------------------------
+Run PLINK
+Failed to read from MAF_filtered_subset.bcf: unknown file type
+PLINK v1.90b6.24 64-bit (6 Jun 2021)           www.cog-genomics.org/plink/1.9/
+(C) 2005-2021 Shaun Purcell, Christopher Chang   GNU General Public License v3
+Logging to Pk.log.
+Options in effect:
+  --allow-extra-chr 0
+  --allow-no-sex
+  --bcf MAF_filtered_subset.bcf
+  --double-id
+  --exclude range regions_to_mask.txt
+  --indiv-sort file MAF_filtered_sample_order.txt
+  --keep-allele-order
+  --make-bed
+  --out Pk
+  --vcf-idspace-to _
+
+128203 MB RAM detected; reserving 64101 MB for main workspace.
+Error: Improperly formatted .bcf file.
+---------------------------------------
+Run geno and mind fileters
+PLINK v1.90b6.24 64-bit (6 Jun 2021)           www.cog-genomics.org/plink/1.9/
+(C) 2005-2021 Shaun Purcell, Christopher Chang   GNU General Public License v3
+Logging to Pk.log.
+Options in effect:
+  --bfile Pk
+  --out Pk
+  --recode
+
+128203 MB RAM detected; reserving 64101 MB for main workspace.
+Error: Failed to open Pk.bed.
+PLINK v1.90b6.24 64-bit (6 Jun 2021)           www.cog-genomics.org/plink/1.9/
+(C) 2005-2021 Shaun Purcell, Christopher Chang   GNU General Public License v3
+Logging to cleaned.log.
+Options in effect:
+  --file Pk
+  --geno 0.25
+  --make-bed
+  --mind 0.25
+  --out cleaned
+
+128203 MB RAM detected; reserving 64101 MB for main workspace.
+Error: Failed to open Pk.map.
+---------------------------------------
+Get SNP list and use this to generate genotype file
+cat: '*_cleaned.bim': No such file or directory
+Fatal error: cannot open file '/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/hmmIBD_genotype_file_subset.R': No such file or directory
+/local/spool/pbs/mom_priv/jobs/99494107.gadi-pbs.SC: line 80: hmmIBD: command not found
+---------------------------------------
+FINISHED
+
+======================================================================================
+                  Resource Usage on 2023-10-31 15:55:19:
+   Job Id:             99494107.gadi-pbs
+   Project:            pq84
+   Exit Status:        0
+   Service Units:      0.49
+   NCPUs Requested:    5                      NCPUs Used: 5               
+                                           CPU Time Used: 00:10:01        
+   Memory Requested:   40.0GB                Memory Used: 8.41GB          
+   Walltime requested: 09:00:00            Walltime Used: 00:04:44        
+   JobFS requested:    100.0MB                JobFS used: 0B              
+======================================================================================

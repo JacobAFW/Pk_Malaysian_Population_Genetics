@@ -1,0 +1,97 @@
+#!/bin/bash
+#PBS -P pq84
+#PBS -q normalbw
+#PBS -N IBD_MAF_1
+#PBS -j oe
+#PBS -m ae
+#PBS -l walltime=6:00:00,mem=40GB,ncpus=5
+#PBS -l storage=gdata/pq84+scratch/pq84
+#PBS -M jacob.westaway@menzies.edu.au
+
+echo "---------------------------------------"
+echo "PBS: Job identifier is $PBS_JOBID"
+echo "PBS: Job name is $PBS_JOBNAME"
+
+echo "---------------------------------------"
+echo "Set working env"
+module load bcftools/1.12
+module load java/jdk-8.40 
+module load R/4.1.0 
+export R_LIBS_USER="/g/data/pq84/R"
+export PATH=$PATH:/g/data/pq84/bin/plink2/
+export PATH=$PATH:/g/data/pq84/bin/hmmIBD/   
+cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/
+mkdir hmmIBD/subsets/
+
+echo "---------------------------------------"
+echo "Generate VCF subsets & recalculate AF"
+bcftools view PK_consensus_no_MOI.vcf -S hmmIBD/subsets/MAF/method_1/Mf_samples.txt --force-samples | bcftools +fill-tags -o hmmIBD/subsets/MAF/method_1/Mf_subset.vcf.gz -- -t AF 
+bcftools view PK_consensus_no_MOI.vcf -S hmmIBD/subsets/MAF/method_1/Mn_samples.txt --force-samples | bcftools +fill-tags -o hmmIBD/subsets/MAF/method_1/Mn_subset.vcf.gz -- -t AF 
+bcftools view PK_consensus_no_MOI.vcf -S hmmIBD/subsets/MAF/method_1/Pen_samples.txt --force-samples | bcftools +fill-tags -o hmmIBD/subsets/MAF/method_1/Pen_subset.vcf.gz -- -t AF 
+
+cd hmmIBD/subsets/MAF/method_1
+
+for i in *_subset.vcf.gz
+    do
+        bcftools index -t $i
+    done
+
+echo "---------------------------------------"
+echo "Run through PLIN - generate bcf files"
+
+for i in *_subset.vcf.gz 
+    do 
+        bcftools view $i | \
+        sed 's/AD,Number=R/AD,Number=./' | \
+        bcftools norm -m-any | \
+        bcftools norm --check-ref w -f $FASTA/strain_A1_H.1.Icor.fasta | \
+        bcftools annotate -Ob -x ID -I +'%CHROM:%POS:%REF:%ALT:%ID' \
+        > ${i%.vcf.gz}.bcf
+    done
+
+
+echo "---------------------------------------"
+echo "Run through PLINK - generate PLINK data"
+
+for i in *bcf
+    do 
+        bcftools view $i | sed -n '/#CHROM/,$p' | head -n 1 | tr '\t' '\n' | sed -n '/FORMAT/,$p' | tail -n +2 | awk '{print $1 "\t" $1}' > ${i%.bcf}_sample_order.txt
+
+        plink --bcf $i \
+        --keep-allele-order \
+        --vcf-idspace-to _ \
+        --double-id \
+        --allow-extra-chr 0 \
+        --make-bed \
+        --indiv-sort file ${i%.bcf}_sample_order.txt\
+        --exclude 'range' regions_to_mask.txt \
+        --allow-no-sex \
+        --out ${i%.bcf}.plink
+    done 
+
+echo "---------------------------------------"
+echo "Run through PLINK - filter PLINK data"
+
+for i in *subset.plink.bed 
+    do 
+        plink --bfile ${i%.bed} --recode --out ${i%.bed} 
+        plink --file ${i%.bed} --maf 0.05 --geno 0.25 --mind 0.25 --make-bed --out ${i%.bed}_cleaned
+    done
+
+echo "---------------------------------------"
+echo "Create unique variant set"
+
+cat *_cleaned.bim | awk '{print $2}' | sed 's/:/\t/g' | awk '{print $1"\t"$2}' | sort -n | uniq > variant_positions_combined.tsv
+
+echo "---------------------------------------"
+echo "Use the above variant set for the genotype set"
+
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/hmmIBD_testing/hmmIBD_genotype_file_subset.R
+
+echo "---------------------------------------"
+echo "Run hmmIBD"
+
+hmmIBD -i hmmIBD_subset.tsv -b /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD/exclude.txt  -o Pk_subset
+
+echo "---------------------------------------"
+echo "Run through PLINK - FINISHED"

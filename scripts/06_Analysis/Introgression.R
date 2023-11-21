@@ -82,7 +82,7 @@ introgression_table <- genotype_table_long %>%
         ifelse(Cluster == "Peninsular" & (Intro_clust != Mn | Intro_clust != Mf | Intro_clust != Peninsular), "Peninsular", .$Intro_clust)))))) 
 
 #write_tsv(introgression_table, "Introgression/introgression_table.tsv")
-#introgression_table <- read_tsv("Introgression/introgression_table.tsv")
+introgression_table <- read_tsv("Introgression/introgression_table.tsv")
 
 # genetic distance per sliding window of each sample to each cluster (dominant allele) - the number of times the SNP is not the dominant allele of that cluster
 
@@ -383,7 +383,7 @@ GFF_annotation <- read.table("/g/data/pq84/malaria/Parasite_and_human_genetic_ri
     mutate(CHROM = str_remove(CHROM, "_v2"))
 
 SICAvar_KIR <- GFF_annotation %>% 
-    filter(grepl("SICAvar", attribute)) %>% 
+    filter(grepl("SICA", attribute)) %>% 
     rbind(
         GFF_annotation %>% 
             filter(grepl("KIR", attribute))
@@ -401,7 +401,6 @@ SICAvar_KIR <- PKA1H1_windows %>%
 introgressed_windows <- introgressed_windows %>% 
     filter(!(WINDOW %in% SICAvar_KIR$WINDOW)) # filter out known hypervariable regions - removes another ~1K windows
 
-
 # Filter windows that appear in multiple clusters as potential introgression events - suggests hypervariability
 
 hypervariable_filter <- introgressed_windows %>%
@@ -415,7 +414,7 @@ introgressed_windows <- introgressed_windows %>%
     filter(!(WINDOW %in% hypervariable_filter$WINDOW)) # filter out unknown hypervariable regions - those windows that appear in multiple clusters
 
 
-
+#write_tsv(introgressed_windows, "/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Introgression/introgressed_windows_filtered.tsv")
 
 
 ######################################## Explore windows of introgression ########################################
@@ -557,7 +556,7 @@ introgression_of_Mn_into_Mf %>%
     unique() %>% 
     group_by(CHROM) %>% 
     summarise(n_windows = n()) %>% 
-    arrange(desc(n_windows))
+    arrange(desc(n_windows)) #%>% write_tsv("Introgression/Mf_windows_across_chrom.tsv")
 
 # Summary table of samples and windows - presence/absence of introgression
 Mf_introgression_matrix <- introgressed_windows %>% 
@@ -682,7 +681,7 @@ introgressed_windows_meta_Mn_to_Mf  %>%
         introgression_of_Mn_into_Mf %>% 
             group_by(WINDOW, CHROM) %>% 
             summarise(start = min(POS), end = max(POS))
-    ) %>% write_tsv("Introgression/Mf_major_windows_Sabah_samples.tsv")
+    ) #%>% write_tsv("Introgression/Mf_major_windows_Sabah_samples.tsv")
 
 # Sarawak samples
 introgressed_windows_meta_Mn_to_Mf  %>% 
@@ -696,7 +695,15 @@ introgressed_windows_meta_Mn_to_Mf  %>%
         introgression_of_Mn_into_Mf %>% 
             group_by(WINDOW, CHROM) %>% 
             summarise(start = min(POS), end = max(POS))
-    ) %>% write_tsv("Introgression/Mf_major_windows_Sarawak_samples.tsv")
+    ) #%>% write_tsv("Introgression/Mf_major_windows_Sarawak_samples.tsv")
+
+# Windows found in both states
+introgressed_windows_meta_Mn_to_Mf  %>% 
+    mutate(Sabah = ifelse(State == "Sabah", "Sabah", "Other")) %>% 
+    group_by(State, WINDOW) %>% 
+    summarise(n = n()) %>% 
+    pivot_wider(names_from = State, values_from = n) %>% 
+    filter(Sabah >= 1 & Sarawak >= 1) 
 
 # district breakdown of interesting windows 
 introgressed_windows_meta_Mn_to_Mf  %>% 
@@ -773,7 +780,7 @@ introgressed_windows_meta_Mf_to_Mn  %>%
     mutate(Sabah = ifelse(State == "Sabah", "Sabah", "Other")) %>% 
     group_by(State, district, WINDOW) %>% 
     summarise(n = n()) %>% 
-    filter(WINDOW == 124)
+    filter(WINDOW == 1347)
 
 
 # Windows with greatest n for both clades      
@@ -869,7 +876,7 @@ introgressed_windows_meta_Mn_to_Mf  %>%
 
 ## Mn
 
-    
+  
 
 # Plot major windows
 ## Plot function
@@ -1007,51 +1014,17 @@ tree_windows <- read_tsv("Introgression/Mf_major_windows_Sabah_samples.tsv") %>%
     rbind(
         read_tsv("Introgression/Mn_major_windows_Sarawak_samples.tsv")
     ) %>% 
+    rbind(
+        read_tsv("Introgression/Mn_major_windows_Sabah_samples.tsv")
+    ) %>% 
     mutate(start = start - 20000) %>% 
     mutate(end = end + 20000) %>% 
     select(1,4:6) %>% 
     mutate(CHROM = paste0("ordered_PKNH_",CHROM,"_v2")) %>% 
+    mutate(WINDOW = as.factor(WINDOW)) %>% # needed to paste into loop downstream
     write_tsv("Introgression/tree_windows.tsv")
 
-
-
-## generate tree plots
-NJT_ID <- read_table("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk.dist.id", col_names=F) %>%
-    as.data.frame() %>%
-    mutate_all(~str_remove(., "_DKD.*")) 
-
-NJT_matrix <- read_table("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk.dist", col_names=NJT_ID$X1) %>%
-    as.data.frame() %>%
-    add_column(Row_Names = NJT_ID$X1) %>%
-    column_to_rownames("Row_Names") %>%
-    as.matrix()
-
-NJT_tree <- nj(NJT_matrix)
-
-NJT_tree_plot <- ggtree(NJT_tree, layout = "daylight", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
-    theme(legend.position = "right", 
-        legend.title = element_blank(), 
-        legend.key = element_blank()) +
-    scale_color_manual(values = c("#440154FF", "#73D055FF", "#39568CFF"))
-    
-ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Introgression/tree_plots/NJT_tree_window_1204_Mn_unrooted.png", dpi = 300, height = 15, width = 15, limitsize = FALSE, NJT_tree_plot)
-
-NJT_tree_plot <- ggtree(NJT_tree, layout="daylight", size = 0.5, aes(colour = Cluster)) %<+% NJT_metadata +
-    theme(legend.position = "right", 
-    legend.title = element_blank(), 
-    legend.key = element_blank()) +
-    geom_tiplab(size = 2) +
-    scale_color_manual(values = c("#440154FF", "#73D055FF", "#39568CFF"))
-
-ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Introgression/tree_plots/NJT_tree_window_1204_Mn_unrooted_labelled.png", dpi = 300, height = 20, width = 20, limitsize = FALSE, NJT_tree_plot)
-
-
-
-
-
-
-
-generate_tree_plots <- function(WINDOW, CLUSTER){
+generate_tree_plots <- function(WINDOW){
 library(ape)
 library(ggtree)
 library(tidyverse)
@@ -1062,11 +1035,11 @@ NJT_metadata <- metadata %>%
 
 options(ignore.negative.edge=TRUE)
 
-NJT_ID <- read_table("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk.dist.id", col_names=F) %>%
+NJT_ID <- read_table(paste0("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Introgression/NJT_data/",WINDOW,".NJT.dist.id"), col_names=F) %>%
     as.data.frame() %>%
     mutate_all(~str_remove(., "_DKD.*")) 
 
-NJT_matrix <- read_table("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk.dist", col_names=NJT_ID$X1) %>%
+NJT_matrix <- read_table(paste0("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Introgression/NJT_data/",WINDOW,".NJT.dist"), col_names=NJT_ID$X1) %>%
     as.data.frame() %>%
     add_column(Row_Names = NJT_ID$X1) %>%
     column_to_rownames("Row_Names") %>%
@@ -1093,11 +1066,70 @@ ggsave(paste0("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_
 }
 
 
-
-
 for(i in levels(tree_windows$WINDOW)){
-    generate_tree_plots
+    generate_tree_plots(paste0(i))
 }      
+
+
+
+# SNP barcode plots
+SNP_barcode_table <- genotype_table_long %>% 
+    select(-Cluster) %>% 
+    left_join(metadata 
+        ) %>% 
+    filter(!is.na(Cluster)) %>% # those samples that have been filtered out for various reasons wont have this data
+  mutate(SNP = ifelse(SNP < 0, NA, .$SNP)) # don't want missing data to be factored into clustering, so, convert -1 to NA
+
+############################## FUNCTION
+clustered_snp_barcode <- function(WINDOW_NUM, CHROM_NUM, START, END, CLUSTER){
+  SNP_barcode_table <- SNP_barcode_table %>%
+    filter(CHROM == paste0(CHROM_NUM) & POS > START	& POS < END) %>% 
+    mutate(SNP = ifelse(SNP < 0, NA, .$SNP))
+
+  clust_data <- SNP_barcode_table %>% 
+    select(CHROM, POS, SAMPLE, SNP) %>% 
+    pivot_wider(names_from = SAMPLE, values_from = SNP) 
+  
+  clust <- clust_data %>%
+    select(-c(1:2)) %>% 
+    t() %>% # each row is a sample and each column a SNP positon 
+    dist() %>%
+    hclust() #euclidean distance
+ 
+  sample_order <- as.data.frame(clust$labels[c(clust$order)]) %>% 
+    rename(SAMPLE = "clust$labels[c(clust$order)]") %>% 
+    filter(SAMPLE != "CHROM" & SAMPLE != "POS") %>% 
+    add_column(SAMPLE_2 = 1:nrow(.)) %>% 
+    mutate(SAMPLE_2 = as.factor(SAMPLE_2))
+
+  SNP_barcode_table <- SNP_barcode_table %>% 
+    left_join(sample_order)
+  
+  introgressed_samples <- introgressed_windows  %>% 
+    filter(WINDOW == WINDOW_NUM & Cluster == paste0(CLUSTER)) 
+    
+  SNP_barcode_table %>% 
+    ggplot(aes(x = POS, y = SAMPLE_2, fill = Cluster, alpha = SNP, group = Cluster)) +
+      geom_col() +
+      scale_fill_manual(values = c("#440154FF", "#73D055FF", "#39568CFF")) +
+      theme(axis.text.y=element_blank(), axis.ticks.y=element_blank(),
+        axis.text.x=element_blank(), axis.ticks.x=element_blank()) +
+      scale_alpha(guide = 'none') +
+      ylab("Sample") +
+      xlab("Chromosome Position") 
+}
+
+snp_barcode_plot <- clustered_snp_barcode(826, "08", 950000, 959999, "Mf")
+ggsave("Introgression/snp_barcodes/oocyte_window_snp_barcode_clustered.png", dpi = 300, width = 10, snp_barcode_plot)
+
+snp_barcode_plot <- clustered_snp_barcode(1504, "11", 2080000, 2089999, "Mf")
+ggsave("Introgression/snp_barcodes/1504_snp_barcode_clustered.png", dpi = 300, width = 10, snp_barcode_plot)
+
+snp_barcode_plot <- clustered_snp_barcode(1440, "11", 1440000, 1449999, "Mf")
+ggsave("Introgression/snp_barcodes/1440_snp_barcode_clustered.png", dpi = 300, width = 10, snp_barcode_plot)
+
+
+
 
 
 

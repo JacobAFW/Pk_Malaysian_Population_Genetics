@@ -1,0 +1,188 @@
+# Required tools/libraries for Analyses
+
+```{bash}
+module load bcftools/1.12
+module load java/jdk-8.40 
+module load R/4.1.0 
+export R_LIBS_USER="/g/data/pq84/R"
+export PATH=$PATH:/g/data/pq84/bin/plink2/
+
+FASTA="/g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/data/ref_genomes/PKA1H1/fasta"
+VCF="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/04_Variant_calling/filtered/"
+GATK="/g/data/pq84/bin/GenomeAnalysisTK-3.8-1-0/GenomeAnalysisTK.jar"
+REGIONS_TO_MASK="/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/regions_to_mask.list"
+
+cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses
+```
+
+# Apply filters 
+
+```{bash,eval=F}
+plink --bfile Pk --recode --out Pk
+plink --file Pk --maf 0.05 --geno 0.01 --mind 0.25 --make-bed --out hmmIBD/fst_test/cleaned
+```
+
+# Mn-Mf
+# Create files to exlude samples and for clusters to compare
+```{bash,eval=F}
+cat Pk.fam | grep 'Peninsular' > hmmIBD/fst_test/exclude_samples.txt
+cd hmmIBD/fst_test/
+R
+```
+
+```{R,eval=F}
+library(tidyverse)
+
+read_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk.csv", col_names = F) %>% 
+    mutate(Fst_cluster = ifelse(grepl("PK_SB_DNA_011", X1) | # does the ID match any of these
+                                grepl("PK_SB_DNA_091", X1) | 
+                                grepl("PK_SB_DNA_043", X1) |
+                                grepl("PK_SB_DNA_016", X1) |  
+                                grepl("PK_SB_DNA_092", X1) | 
+                                grepl("PK_SB_DNA_030", X1) | 
+                                grepl("PK_SB_DNA_093", X1) | 
+                                grepl("PK_SB_DNA_042", X1) | 
+                                grepl("PK_SB_DNA_063", X1), "Mn", .$X7)) %>% # if not, just use values from X7 - clusters and Sabah
+    mutate(Fst_cluster = ifelse(Fst_cluster == "Sabah", "Mf", .$Fst_cluster)) %>% # if its the remaining Sabah samples, make them Mn, else keep them the same
+    select(1, 2, 8) %>%
+    filter(Fst_cluster != "Peninsular") %>%
+    write_csv("sample_clusters.csv", col_names = F)
+```
+
+```{bash,eval=F}
+sed 's/,/ /g' sample_clusters.csv > sample_clusters.txt
+rm -f sample_clusters.csv
+
+plink --bfile cleaned \
+  --within sample_clusters.txt \
+  --remove exclude_samples.txt \
+  --fst \
+  --allow-no-sex \
+  --out Mf_Mn
+```
+
+# Mn-Pen
+```{bash,eval=F}
+cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses
+cat Pk.fam | grep 'Mf' > hmmIBD/fst_test/exclude_samples.txt
+cd hmmIBD/fst_test/
+R
+```
+
+```{R,eval=F}
+library(tidyverse)
+
+read_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk.csv", col_names = F) %>% 
+    mutate(Fst_cluster = ifelse(grepl("PK_SB_DNA_011", X1) | # does the ID match any of these
+                                grepl("PK_SB_DNA_091", X1) | 
+                                grepl("PK_SB_DNA_043", X1) |
+                                grepl("PK_SB_DNA_016", X1) |  
+                                grepl("PK_SB_DNA_092", X1) | 
+                                grepl("PK_SB_DNA_030", X1) | 
+                                grepl("PK_SB_DNA_093", X1) | 
+                                grepl("PK_SB_DNA_042", X1) | 
+                                grepl("PK_SB_DNA_063", X1), "Mn", .$X7)) %>% # if not, just use values from X7 - clusters and Sabah
+    mutate(Fst_cluster = ifelse(Fst_cluster == "Sabah", "Mf", .$Fst_cluster)) %>% # if its the remaining Sabah samples, make them Mn, else keep them the same
+    select(1, 2, 8) %>%
+    filter(Fst_cluster != "Mf") %>%
+    write_csv("sample_clusters.csv", col_names = F)
+```
+
+```{bash,eval=F}
+sed 's/,/ /g' sample_clusters.csv > sample_clusters.txt
+rm -f sample_clusters.csv
+
+plink --bfile cleaned \
+  --within sample_clusters.txt \
+  --remove exclude_samples.txt \
+  --fst \
+  --allow-no-sex \
+  --out Mn_Pen
+```
+
+# Mf-Pen
+```{bash,eval=F}
+cd /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses
+cat Pk.fam | grep 'Mn' > hmmIBD/fst_test/exclude_samples.txt
+cd hmmIBD/fst_test/
+R
+```
+
+```{R,eval=F}
+library(tidyverse)
+
+read_csv("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/Pk.csv", col_names = F) %>% 
+    mutate(Fst_cluster = ifelse(grepl("PK_SB_DNA_011", X1) | # does the ID match any of these
+                                grepl("PK_SB_DNA_091", X1) | 
+                                grepl("PK_SB_DNA_043", X1) |
+                                grepl("PK_SB_DNA_016", X1) |  
+                                grepl("PK_SB_DNA_092", X1) | 
+                                grepl("PK_SB_DNA_030", X1) | 
+                                grepl("PK_SB_DNA_093", X1) | 
+                                grepl("PK_SB_DNA_042", X1) | 
+                                grepl("PK_SB_DNA_063", X1), "Mn", .$X7)) %>% # if not, just use values from X7 - clusters and Sabah
+    mutate(Fst_cluster = ifelse(Fst_cluster == "Sabah", "Mf", .$Fst_cluster)) %>% # if its the remaining Sabah samples, make them Mn, else keep them the same
+    select(1, 2, 8) %>%
+    filter(Fst_cluster != "Mn") %>%
+    write_csv("sample_clusters.csv", col_names = F)
+```
+
+```{bash,eval=F}
+sed 's/,/ /g' sample_clusters.csv > sample_clusters.txt
+rm -f sample_clusters.csv
+
+plink --bfile cleaned \
+  --within sample_clusters.txt \
+  --remove exclude_samples.txt \
+  --fst \
+  --allow-no-sex \
+  --out Mf_Pen
+```
+
+
+# Read Fst data into R - combine - define threshold for exclusion - create exclusion file 
+
+```{R,eval=F}
+library(tidyverse)
+
+Mf_Mn_matrix <- read_table("Mf_Mn.fst", col_names=T) %>%
+    mutate(CHR = str_remove(SNP, "ordered_PKNH_")) %>%
+    mutate(CHR = str_remove(CHR, "_v2.*")) %>% 
+    add_column(comparison = "Mf_Mn")
+
+Mn_Pen_matrix <- read_table("Mn_Pen.fst", col_names=T) %>%
+    mutate(CHR = str_remove(SNP, "ordered_PKNH_")) %>%
+    mutate(CHR = str_remove(CHR, "_v2.*")) %>% 
+    add_column(comparison = "Mn_Pen")
+
+Mf_Pen_matrix <- read_table("Mf_Pen.fst", col_names=T) %>%
+    mutate(CHR = str_remove(SNP, "ordered_PKNH_")) %>%
+    mutate(CHR = str_remove(CHR, "_v2.*")) %>% 
+    add_column(comparison = "Mf_Pen")
+
+Mf_Mn_matrix %>% 
+    rbind(Mn_Pen_matrix) %>% 
+    #rbind(Mf_Pen_matrix) %>% 
+    mutate(FST = as.numeric(FST)) %>% 
+    filter(FST > 0.9) %>% 
+    select(SNP) %>% 
+    unique() %>% 
+    separate(SNP, sep = ":", c("CHROM", "POS", "REF", "ALT", "MISS")) %>% 
+    select(CHROM, POS)  %>% 
+    write_tsv("high_fst_regions.tsv")  
+```
+
+# Update variant list for positions to filter for in genotype file 
+
+```{R,eval=F}
+cat cleaned.bim | awk '{print $2}' | sed 's/:/\t/g' | awk '{print $1"\t"$2}' | sort -n | uniq > variant_positions.tsv
+fgrep -v -f high_fst_regions.tsv variant_positions.tsv > variant_positions_excluding_fst.tsv
+```
+
+# Submit PBS job for genotype file and hmmIBD
+
+```{R,eval=F}
+Rscript /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/scripts/06_Analysis/hmmIBD_testing/hmmIBD_genotype_file_fst.R
+
+hmmIBD -i hmmIBD.tsv -b /g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/hmmIBD/exclude.txt -o Pk
+```
