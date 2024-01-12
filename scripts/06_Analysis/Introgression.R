@@ -1198,6 +1198,28 @@ introgressed_windows_meta_Mf_to_Mn <- introgressed_windows_meta %>% # meatdata o
 
 
 
+# Create table with overlapping windows for 028 and 053 - outlier samples that are highly similar
+introgressed_windows %>% 
+    filter(grepl("PK_SB_DNA_028", SAMPLE) | grepl("PK_SB_DNA_053", SAMPLE)) %>% 
+    arrange(WINDOW) %>% 
+    select(SAMPLE, WINDOW) %>% 
+    group_by(WINDOW) %>% 
+    summarise(n = n()) %>% 
+    filter(n > 1) %>%
+    left_join(
+        PKA1H1_windows %>% 
+            group_by(CHROM, WINDOW) %>% 
+            summarise(start = min(POS), end = max(POS))
+    ) %>%
+    rename(n_1 = n) %>%
+    left_join(
+        introgressed_windows_meta %>% 
+            filter(State == "Sarawak") %>% 
+            group_by(WINDOW) %>% 
+            summarise(n = n()) %>% 
+            rename(n_2 = n)
+    )
+
 
 
 

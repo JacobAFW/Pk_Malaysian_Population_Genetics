@@ -110,6 +110,7 @@ java -Djava.iodir=$PBS_JOBFS -Xms3200m -Xmx3600m -jar $GATK \
 cdd 1
 ```
 
+
 Run below in R
 ```{R,eval=F}
 # Converting VCF to GDS for estMOI
@@ -148,8 +149,8 @@ baf_df <- isolate_baf$coords %>%
   mutate(chromosome = str_remove(chromosome, "_v2"))
 
 ## Plot BAF for different Fws samples with ggplot
-plot_baf <- function(DATA, SAMPLE){
-DATA %>%
+plot_baf <- function(DATA, SAMPLE, FWS){
+baf_plot <- DATA %>%
     ggplot(aes_string(x = "variant.id", y = SAMPLE, colour = "chromosome")) + # use aes string so that we can paste the str in from the function arguments - passing the sample in not as a string does not work
     geom_point() +
     scale_colour_manual(values = c(rep_len(c("#404788FF", "#1F968BFF"), length(unique(baf_df$chromosome))))) +
@@ -157,16 +158,30 @@ DATA %>%
     ylab("NRAF") + 
     theme(axis.text.x = element_blank(), 
         axis.ticks.x = element_blank(), 
+        axis.title.x = element_text(size = 15),
+        axis.title.y = element_text(size = 15),
+        axis.text.y = element_text(size = 15),
         legend.position = "bottom", 
         legend.title = element_blank(), 
         panel.border = element_rect(colour = "black", fill = NA, size = 1),
         panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank()) +
-    guides(colour = guide_legend(nrow = 1))
+        panel.grid.minor = element_blank(),
+        plot.title = element_text(hjust = 0.5, size = 15)) +
+    guides(colour = guide_legend(nrow = 1)) +
+    ggtitle(paste0("Fws=", FWS))
+
+    ggsave(paste0("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/MAF-Fws_plots/for_pub/", SAMPLE, "_", FWS, ".png"), width = 12, dpi = 300, baf_plot)
 }
 
-baf_plot <- plot_baf(baf_df, "ERR2214850")
-ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/MAF-Fws_plots/ERR2214850_72.png", width = 14, dpi = 300, baf_plot)
+plot_baf(baf_df, "ERR985395", "0.54")
+plot_baf(baf_df, "ERR985405", "0.62") # or ERR985410
+plot_baf(baf_df, "ERR2214850", "0.72")
+plot_baf(baf_df, "ERR985417", "0.84")
+plot_baf(baf_df, "ERR985376", "0.93")
+baf_df %>% 
+  rename("PK_SB_DNA_004" = "PK_SB_DNA_004_DKDL210002133-1a_HWHGKDSXY_L4") %>%
+plot_baf(., "PK_SB_DNA_004", "0.99")
+
 
 ## Plot BAF for different Fws samples using base
 #png('/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/MAF-Fws_plots/Fws_99.png', width = 14, height = 6, units = "in", res = 300)
@@ -421,7 +436,7 @@ Plink_fam <- read_csv("Pk.csv", col_names=FALSE) %>%
 write_csv(Plink_fam, "Pk.csv", col_names = FALSE)
 ```
 
-## Remove duplicates
+## To remove duplicates
 
 ```{bash,eval=F}
 cut -f 2 Pk.bim | sort | uniq -d > Pk.dups
@@ -1694,7 +1709,6 @@ save.pairwise.matrix(Pk.pairwise.median, "Pk_pairwise_IBD_median.txt")
 Pk.pairwise.summary <- calculate.pairwise.table(Pk.IBD, metadata, "Cluster", statistics)
 save.pairwise.table(Pk.pairwise.summary, "Pk_pairwise_summary.txt")
 ```
-
 
 ## Plot pairwise statistics from hmmIBD output (thanks Edwin!)
 
