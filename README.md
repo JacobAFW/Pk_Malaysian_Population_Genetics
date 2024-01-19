@@ -10,4 +10,4 @@ The repo contains:
 - Scripts for all statistical analyses. 
 
 Feel free to contact me with questions.
-Please acknowledge this repo (or for the Snakemake pipeline) if you used.
+Please acknowledge this repo (or for the Snakemake pipeline) if used.
