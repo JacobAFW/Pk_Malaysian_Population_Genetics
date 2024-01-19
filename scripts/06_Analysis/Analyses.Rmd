@@ -439,7 +439,8 @@ write_csv(Plink_fam, "Pk.csv", col_names = FALSE)
 ## To remove duplicates
 
 ```{bash,eval=F}
-cut -f 2 Pk.bim | sort | uniq -d > Pk.dups
+cut -f 2 Pk.fam | sort | uniq -d > Pk.dups
+plink --bfile Pk --recode --remove Pk.dups --out Pk
 ```
 
 ## Calculate minor allele frequency, genotypic missingness
