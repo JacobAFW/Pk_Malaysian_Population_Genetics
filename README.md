@@ -6,7 +6,7 @@ The repo contains:
 - A markdown with the full bioinformatics pipeline/workflow, including extensive annotation.
 - Scripts for the individual steps of pipeline (fastq > filtered VCF). 
 - An improved Snakemake version of the pipeline (fastq > unfiltered VCF) can be found [here](https://github.com/JacobAFW/Variant_Calling_Pipeline).
-- A markdown with the full analysis workflow (including steps that didn't make into the final paper).
+- A markdown with the full analysis workflow (including steps that didn't make into the final paper) - scripts/06_Analysis/Analayses.Rmd.
 - Scripts for all statistical analyses. 
 
 Feel free to contact me with questions.
