@@ -9,11 +9,16 @@ MOI: https://bahlolab.github.io/moimix/vignettes/introduction.html#estimating-mo
 
 ## Required tools/libraries for Analyses
 
+Might be needed for NRAF plots - moimix 
+
+module load R/4.1.0 
+export R_LIBS_USER="/g/data/pq84/R"
+
 ```{bash}
 module load bcftools/1.12
 module load java/jdk-8.40 
-module load R/4.1.0 
-export R_LIBS_USER="/g/data/pq84/R"
+module load R/4.3.1 
+export R_LIBS=/home/588/jw1542/.local/lib/R_4.3:$R_LIBS
 export PATH=$PATH:/g/data/pq84/bin/plink2/
 
 FASTA="/g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/data/ref_genomes/PKA1H1/fasta"
@@ -240,8 +245,8 @@ ggsave("moimix/fws_hist_plot.png", fws_plot)
 
 # Boxplots by location
 fws_all <- fws_all %>%
-  mutate(Sample = str_remove(sample, "_DK.*")) %>%
-  select(-sample) %>%
+  mutate(Sample = str_remove(Sample, "_DK.*")) %>%
+  #select(-sample) %>%
   left_join(
     readxl::read_xlsx("/g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/data/metadata/PK_Sabah_Sample_naming_indexes.xlsx") %>% 
       select(1) %>%
@@ -281,7 +286,10 @@ fws_all %>%
   group_by(Cluster) %>%
   summarise(Count = n(), Mean = mean(Proportion), Below_95 = sum(Proportion <= .95), Below_85 = sum(Proportion <= .85))
 
-
+# Testing states and clusters
+fws_tests <- fws_all %>%
+  mutate(State = ifelse(Location == "Clinic" | Location == "Gua_Musang" | Location == "Kuala_Lipis" | Location == "Sungai_Siput" | Location == "Sungai_Siuit" | Location == "Taiping" | Location == "Temerloh", "Peninsular",
+  ifelse(Location == "Sabah", "Sabah", "Sarawak"))) 
 
 # Boxplot and point-plot by location
 fws_plot <- fws_all %>%
@@ -305,6 +313,27 @@ fws_plot <- fws_all %>%
   xlab("Fws")
 
 ggsave("moimix/fws_cluster_boxplot.png", width = 6, height = 8, dpi = 600, fws_plot)
+
+sample_info <- read_tsv("sample_info_updated.tsv") %>%
+  mutate(State = ifelse(grepl("Sabah", State), "Sabah", 
+  ifelse(State != "Sarawak" & State != "Sabah", "Peninsular", State))) 
+
+fws_plot <- fws_all %>% 
+  rename(Sample = sample) %>% 
+  mutate(Sample = str_remove(Sample, "_DK.*")) %>% 
+  left_join(sample_info %>% 
+    select(-Proportion)) %>%
+  filter(!is.na(State)) %>%
+  ggplot(aes(y = State, x = Proportion, by = State)) +
+  geom_boxplot() +
+  geom_point(aes(colour = State)) +
+  geom_line(aes(colour = State)) +
+  scale_colour_manual(values = c("#440154FF", "#73D055FF", "#39568CFF")) +
+  theme(legend.position = "none", text = element_text(size = 15)) +
+  xlab("Fws")
+
+ggsave("moimix/fws_state_boxplot.png", width = 6, height = 8, dpi = 600, fws_plot)
+
 ```
 
 ## Exclude samples with high MOI

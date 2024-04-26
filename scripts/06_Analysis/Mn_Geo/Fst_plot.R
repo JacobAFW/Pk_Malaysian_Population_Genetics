@@ -66,14 +66,41 @@ Fst_plot <- Fst_matrix %>%
     add_column(ROW = 1:nrow(.)) %>%
     ggplot(aes(x = ROW, y = FST, colour = CHR)) +
     geom_point() +
-    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), legend.position = "bottom") +
+    theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(), legend.position = "bottom", text = element_text(size = 25)) +
     ylab("Fst") +
     xlab("Genome")  +
     scale_color_viridis_d("Chr") +
     guides(color=guide_legend(nrow=1, byrow=TRUE)) 
 
-ggsave("Mn_plots/Fst_manhattan_whole_genome.png", dpi = 600, width = 20, Fst_plot)
+ggsave("Mn_plots/Fst_manhattan_whole_genome_increased_font.png", dpi = 600, width = 20, Fst_plot)
 
+#################################### Publication plot
+
+plot_data <- Fst_matrix %>%
+    filter(FST != "nan") %>%
+    filter(FST > 0) %>%
+    mutate(FST = as.numeric(FST)) %>%
+    arrange(CHR, POS) %>%
+    add_column(ROW = 1:nrow(.)) 
+
+x_axis <- plot_data %>%
+    group_by(CHR) %>%
+    summarise(ROW = median(ROW)) %>%
+    mutate(CHR = str_remove(CHR, "^0"))
+
+Fst_plot <- plot_data %>%
+    ggplot(aes(x = ROW, y = FST, colour = CHR)) +
+    geom_point() +
+    theme(legend.position = "none", text = element_text(size = 25)) +
+    ylab("Fst") +
+    xlab("Chromosome")  +
+    scale_color_viridis_d("Chr") +
+    guides(color=guide_legend(nrow=1, byrow=TRUE)) +
+    scale_x_continuous(breaks = x_axis$ROW, labels = x_axis$CHR)
+
+ggsave("Mn_plots/Fst_manhattan_whole_genome_increased_font.png", dpi = 300, width = 20, Fst_plot)
+
+#################################### 
 
 Fst_plot <- Fst_matrix %>%
     filter(FST > 0) %>%

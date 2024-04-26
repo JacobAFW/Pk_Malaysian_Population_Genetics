@@ -1,0 +1,354 @@
+# Calculate depth and number of mapped reads
+
+```{R,eval=F}
+#!/bin/bash
+#PBS -P pq84
+#PBS -q normalbw
+#PBS -N Map_Qual_batch1
+#PBS -j oe
+#PBS -m ae
+#PBS -l walltime=24:00:00,mem=100GB,ncpus=21
+#PBS -l storage=gdata/pq84+scratch/pq84
+#PBS -M jacob.westaway@menzies.edu.au
+
+echo "---------------------------------------"
+echo "PBS: Job identifier is $PBS_JOBID"
+echo "PBS: Job name is $PBS_JOBNAME"
+
+echo "---------------------------------------"
+echo "Define paths and load modules"
+module load bbmap/38.93
+module load samtools/1.12  
+module load sambamba/0.8.1 
+module load java/jdk-8.40 
+BED="/g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/data/ref_genomes/PKA1H1/strain_A1_H.1.Icor.fasta.bed"
+OUTDIR="/g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/outputs/05_Analyses/Mapping/"
+mkdir $OUTDIR
+mkdir $OUTDIR/batch1
+INDIR="/g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/outputs/02_Mapping/batch1"
+cd $INDIR
+
+echo "---------------------------------------"
+echo 'Mapping Quality'
+echo "---------------------------------------"
+for i in *.bam
+do
+samtools view -h --threads 21 $i | pileup.sh in=stdin 2> $OUTDIR/batch1/${i%.bam}.mapstats
+done 
+
+
+
+echo "---------------------------------------"
+echo "Aggregate bbmap outputs"
+cd $OUTDIR/batch1
+tail -n +1 *mapstats | grep '.mapstats\|Read\|Mapped\|Ref\|Percent\|Average\|Standard' | sed 's/:/,/' | sed 's/<==/,/' > mapstats_summary.csv
+
+
+echo "---------------------------------------"
+echo 'Read Depth'
+echo "---------------------------------------"
+
+cd $INDIR
+
+echo "---------------------------------------"
+echo 'Sort bam files'
+for i in *.bam
+do
+samtools sort -@ 21 $i > $OUTDIR/batch1/${i%.bam}.sorted.bam
+done 
+
+echo "---------------------------------------"
+echo 'Index bam files'
+cd $OUTDIR/batch1
+for i in *.sorted.bam
+do
+samtools index -@ 21 $i 
+done 
+
+echo "---------------------------------------"
+echo 'Create file with list of filenames'
+ls *sorted.bam > filenames.txt
+
+echo "---------------------------------------"
+echo 'Exectue samtools depth'
+samtools depth -a -b $BED -f filenames.txt -o depth_summary.depth
+
+echo "---------------------------------------"
+echo 'Clean Up'
+echo "---------------------------------------"
+rm -f *sorted*
+rm -f *.mapstats
+
+echo "---------------------------------------------------------------------------------------------------------------------"
+echo "FINISHED"
+echo "---------------------------------------------------------------------------------------------------------------------"
+```
+
+
+## Visuale outputs 
+
+### IGV download
+
+```{R,eval=F}
+cd /g/data/pq84/malaria/Parasite_and_human_genetic_risk_factors_for_Pk_malaria/outputs/05_Analyses/Mapping/batch1
+
+samtools sort RK042_DKDN230007695-1A_H2HG5DSX7_L4.bam > tmp/RK042_DKDN230007695-1A_H2HG5DSX7_L4_sorted.bam
+samtools sort RK021_DKDN230007690-1A_H2HG5DSX7_L4.bam > tmp/RK021_DKDN230007690-1A_H2HG5DSX7_L4_sorted.bam
+samtools sort QDM183_DKDN230007699-1A_H2HG5DSX7_L4.bam > tmp/QDM183_DKDN230007699-1A_H2HG5DSX7_L4_sorted.bam
+samtools sort NTW1_68_DKDN230007713-1A_H2HG5DSX7_L4.bam > tmp/NTW1_68_DKDN230007713-1A_H2HG5DSX7_L4_sorted.bam
+samtools sort MK015_DKDN230007672-1A_H2HG5DSX7_L4.bam > tmp/MK015_DKDN230007672-1A_H2HG5DSX7_L4_sorted.bam
+samtools index tmp/RK042_DKDN230007695-1A_H2HG5DSX7_L4_sorted.bam
+samtools index tmp/RK021_DKDN230007690-1A_H2HG5DSX7_L4_sorted.bam
+samtools index tmp/QDM183_DKDN230007699-1A_H2HG5DSX7_L4_sorted.bam
+samtools index tmp/NTW1_68_DKDN230007713-1A_H2HG5DSX7_L4_sorted.bam
+samtools index tmp/MK015_DKDN230007672-1A_H2HG5DSX7_L4_sorted.bam
+```
+
+### Create summary data 
+
+```{R,eval=F}
+#!/bin/bash
+#PBS -P pq84
+#PBS -q normalbw
+#PBS -N Depth_R_wrangle_batch1
+#PBS -j oe
+#PBS -m ae
+#PBS -l walltime=12:00:00,mem=80GB,ncpus=10
+#PBS -l storage=gdata/pq84+scratch/pq84
+#PBS -M jacob.westaway@menzies.edu.au
+
+echo "---------------------------------------"
+echo "PBS: Job identifier is $PBS_JOBID"
+echo "PBS: Job name is $PBS_JOBNAME"
+
+echo "---------------------------------------"
+echo "Define paths and load modules"
+module load R/4.1.0 
+export R_LIBS_USER="/g/data/pq84/R"
+cd /g/data/pq84/malaria/Pm/outputs/05_Analyses/Mapping
+
+echo "---------------------------------------"
+echo "Add header line to depth depth summary"
+awk '{print $1}' depth_summary.depth | uniq > chromosome.txt
+echo -e Contig"\n"Bases | cat - filenames.txt | sed 's/.sorted.bam//g' | tr '\n' '\t' | awk '{print $0}' - | cat - depth_summary.depth > depth_with_header.tsv
+
+echo "---------------------------------------"
+echo "Wrangle script"
+Rscript /g/data/pq84/malaria/Pm/scripts/05_Analyses/mapping_quality/depth_wrangle.R
+
+echo "---------------------------------------"
+echo "FINSIHED"
+```
+
+```{R,eval=F}
+# define read depth function to get read depth per contig
+library(tidyverse)
+library(janitor)
+
+read_depth_data <- function(file_path, dataset, alignment){
+read_tsv(file_path, col_names = TRUE) %>% 
+  select(!Bases) %>% 
+  group_by(Contig) %>% 
+  summarise_all(mean) %>%
+  t() %>% 
+  as.data.frame() %>% 
+  row_to_names(1) %>% 
+  add_column(Data = dataset, Alignment = alignment) %>% 
+  rownames_to_column("Sample")
+}
+
+# define base_pairs function to change names and get percentage of bases that are NA
+base_pairs <- function(file_path, dataset, alignment){
+read_tsv(file_path, col_names = TRUE) %>% 
+  select(!Bases) %>% 
+  na_if(0) %>% 
+  group_by(Contig) %>% 
+  summarise_all(funs(sum(is.na(.))/length(.) * 100)) %>% 
+  t() %>% 
+  as.data.frame() %>% 
+  row_to_names(1) %>% 
+  add_column(Data = dataset, Alignment = alignment) %>% 
+  rownames_to_column("Sample")
+}
+
+depth_data <- read_depth_data("depth_with_header.tsv", "Pm", "Direct")
+base_data <- base_pairs("depth_with_header.tsv", "Pm", "Direct")
+
+write_tsv(depth_data, "read_depth.tsv")
+write_tsv(base_data, "bases.tsv")
+```
+
+
+### Read in, wrangle data, and plot
+
+```{R,eval=F}
+module load R/4.1.0 
+export R_LIBS_USER="/g/data/pq84/R"
+cd /g/data/pq84/malaria/Pm/outputs/05_Analyses/Mapping
+R
+```
+
+```{R,eval=F}
+library(tidyverse)
+library(janitor)
+library(data.table)
+
+bbmap_func <- function(file_path, grep_pattern, bbmap_data, alignment, genome){ 
+read_csv(file_path, col_names = c("Variable", "Value")) %>%
+  mutate(Variable = str_remove(Variable, "==> ")) %>% 
+  filter(!grepl(grep_pattern, Variable)) %>% # data specific
+  add_column(
+    (read_csv(file_path, col_names = c("Variable", "Value")) %>% 
+       mutate(Variable = str_remove(Variable, "==> ")) %>% 
+       filter(grepl(grep_pattern, Variable)) %>% # data specific
+       mutate(Variable = Variable) %>% 
+       rbind(.,.,.,.,.,.,.,.,.,.,.,.) %>% # represents the number of variables
+       arrange(Variable) %>% 
+       mutate_if(is.character, as.factor) %>% 
+       select(Variable) %>% 
+       rename("ID" = Variable))) %>% 
+  pivot_wider(names_from = Variable, values_from = Value) %>% 
+  add_column(Data = bbmap_data, Alignment = alignment, Genome = genome)  %>% 
+  as.tibble(.name_repair = "universal")
+}
+
+
+bbmap_data <- bbmap_func("mapstats_summary.csv",  "mapstats", "batch1", "Direct", "Pk") %>%
+  mutate(Sample = str_remove(ID, ".mapstats")) %>%
+  select(-ID) %>%
+  na.omit()
+
+bbmap_data %>% 
+  write_tsv("full_summary.tsv")
+
+bbmap_data %>% 
+  summarise(Reads = mean(Reads), Mapped.reads = mean(Mapped.reads), Mapped.bases = mean(Mapped.bases), 
+  Percent.mapped = mean(Percent.mapped), Average.coverage = mean(Average.coverage), 
+  Percent.of.reference.bases.covered = mean(Percent.of.reference.bases.covered)) %>%
+  write_tsv("mean_of_mapstats.tsv")
+
+# Plot mapped reads 
+bbmap_plot <- bbmap_data %>%
+  arrange(desc(Mapped.reads)) %>%
+  add_column(sample = 1:nrow(.)) %>%
+  ggplot(aes(x = sample, y = Mapped.reads/1000000)) +
+  geom_col() +
+  theme(axis.text.x = element_blank(), axis.ticks = element_blank()) +
+  ylab("Mapped Reads (M)") +
+  xlab("Sample")
+
+ggsave("bbmap_plot_subset.png", bbmap_plot, dpi = 300, width = 20)
+
+# plot mapped and total
+bbmap_plot <- bbmap_data %>%
+  arrange(desc(Mapped.reads)) %>%
+  add_column(sample = 1:nrow(.)) %>%
+  ggplot() +
+  geom_point(aes(x = sample, y = Mapped.reads/1000000), colour = "#440154FF") +
+  geom_point(aes(x = sample, y = Reads/1000000), colour = "#39568CFF") +
+  theme(axis.text.x = element_blank(), axis.ticks = element_blank()) +
+  ylab("Reads: mapped and total (M)") +
+  xlab("Sample")
+
+ggsave("bbmap_total_subset.png", bbmap_plot, dpi = 300, width = 20)
+
+# proportion of reads mapped
+bbmap_plot <- bbmap_data %>%
+  mutate(Proportion_mapped = Mapped.reads/Reads*100) %>%
+  mutate(Threshold = ifelse(Proportion_mapped <= 95, "< 95%", "> 95%")) %>%
+  arrange(desc(Proportion_mapped)) %>%
+  add_column(sample = 1:nrow(.)) %>%
+  ggplot() +
+  geom_col(aes(x = sample, y = Proportion_mapped, fill = Threshold)) +
+  theme(axis.text.x = element_blank(), axis.ticks = element_blank()) +
+  ylab("Proportion of reads mapped") +
+  xlab("Sample") +
+  scale_fill_manual(values = c("#440154FF", "#1F968BFF"))
+
+ggsave("bbmap_proportions_subset.png", bbmap_plot, dpi = 300, width = 20)
+
+# average coverage 
+bbmap_plot <- bbmap_data %>%
+  mutate(Threshold = ifelse(Average.coverage >= 30, ">30", "<30")) %>%
+  arrange(desc(Average.coverage)) %>%
+  add_column(sample = 1:nrow(.)) %>%
+  ggplot(aes(x = sample, y = Average.coverage, fill = Threshold)) +
+  geom_col() +
+  theme(axis.text.x = element_blank(), axis.ticks = element_blank()) +
+  ylab("Coverage") +
+  xlab("Sample") +
+  scale_fill_manual(values = c("#440154FF", "#1F968BFF"))
+
+ggsave("bbmap_average_coverage_subset.png", bbmap_plot, dpi = 300, width = 20)
+
+
+# percent of reference bases covered 
+bbmap_plot <- bbmap_data %>%
+  mutate(Threshold = ifelse(Percent.of.reference.bases.covered >= 50, ">50", "<50")) %>%
+  arrange(desc(Percent.of.reference.bases.covered)) %>%
+  add_column(sample = 1:nrow(.)) %>%
+  ggplot(aes(x = sample, y = Percent.of.reference.bases.covered, fill = Threshold)) +
+  geom_col() +
+  theme(axis.text.x = element_blank(), axis.ticks = element_blank()) +
+  ylab("Bases covered") +
+  xlab("Sample") +
+  scale_fill_manual(values = c("#440154FF", "#1F968BFF"))
+
+ggsave("bbmap_percent.of.reference.bases.covered_subset.png", bbmap_plot, dpi = 300, width = 20)
+
+# Plot coverage vs bases
+bbmap_plot <- bbmap_data%>%
+  mutate(Threshold = ifelse(Average.coverage >= 30 & Percent.of.reference.bases.covered > 50, "Ideal", "Not ideal")) %>%
+  ggplot(aes(x = Percent.of.reference.bases.covered, y = Average.coverage, colour = Threshold)) +
+  geom_point() +
+  ylab("Coverage") +
+  xlab("% bases covered") +
+  scale_fill_manual(values = c("#440154FF", "#1F968BFF")) +
+  geom_hline(yintercept = 30, linetype = 'dotted') +
+  geom_vline(xintercept = 50, linetype = 'dotted') 
+
+ggsave("coverage_vs_bases_subset.png", bbmap_plot, dpi = 300)
+
+
+# read depth data
+depth_data <- read_tsv("read_depth.tsv") %>%
+  select(-c(Data, Alignment)) %>%
+  pivot_longer(2:ncol(.), names_to = "Chr", values_to = "Depth") %>%
+  left_join(
+     read_tsv("bases.tsv") %>%
+      select(-c(Data, Alignment)) %>%
+      pivot_longer(2:ncol(.), names_to = "Chr", values_to = "Bases_miss")
+    )
+
+# Sample summary
+depth_data %>% 
+  filter(!grepl("MIT", Chr)) %>%
+  group_by(Sample) %>%
+  summarise(Depth = mean(Depth), Bases_miss = mean(Bases_miss)) %>%
+  arrange(desc(Depth)) %>%
+  write_tsv("samtools_sample_depth_averages.tsv")
+
+# Summary by chr
+depth_data %>% 
+  group_by(Chr) %>%
+  summarise(Depth = mean(Depth), Bases_miss = mean(Bases_miss)) %>%
+  write_tsv("samtools_depth_miss_averages.tsv")
+
+depth_data %>%
+  summarise(Depth = mean(Depth), Bases_miss = mean(Bases_miss)) %>%
+  write_tsv("mean_of_samtools.tsv")
+
+
+# plot depth across contigs
+depth_plot <- depth_data %>%
+  filter(!grepl("MIT", Chr) & !grepl("API", Chr)) %>%
+  mutate(Chr = str_remove(Chr, "ordered_PKNH_")) %>%
+  mutate(Chr = str_remove(Chr, "_v2")) %>%
+  ggplot(aes(x = Chr, y = Depth)) +
+  geom_boxplot() +
+  geom_point(aes(colour = Chr)) +
+  theme(legend.position = "none")
+
+ggsave("depth_across_contigs_box.png", depth_plot, dpi = 300)
+
+```

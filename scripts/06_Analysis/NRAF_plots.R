@@ -3,6 +3,7 @@ library(tidyverse)
 library(SeqArray)
 library(gridExtra)
 library(ggpubr)
+library(moimix)
 
 seqVCF2GDS("moimix/PK_consensus_masked.vcf.gz", "moimix/PK_consensus_filtered_pass.gds", storage.option = "LZ4_RA")
 isolates <- seqOpen("moimix/PK_consensus_filtered_pass.gds") # read into R
@@ -14,7 +15,6 @@ str(seqGetData(isolates, "annotation/info/AC"))
 head(seqGetData(isolates, "sample.id"))
 
 # moimix analysis
-library(moimix)
 coords <- getCoordinates(isolates) # get genomic coordinates of all variants
 
 ## estimating BAF matrix 
@@ -50,7 +50,8 @@ DATA %>%
         legend.title = element_blank(), 
         panel.border = element_rect(colour = "black", fill = NA, size = 1),
         panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank()) +
+        panel.grid.minor = element_blank(),
+        text = element_text(size = 25)) +
     guides(colour = guide_legend(nrow = 1))
 }
 
@@ -160,7 +161,7 @@ ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyse
 plot_baf_grid <- function(DATA, SAMPLE){
 DATA %>%
     ggplot(aes_string(x = "variant.id", y = SAMPLE, colour = "chromosome")) + # use aes string so that we can paste the str in from the function arguments - passing the sample in not as a string does not work
-    geom_point() +
+    geom_point(size = 1) +
     scale_colour_manual(values = c(rep_len(c("#404788FF", "#1F968BFF"), length(unique(baf_df$chromosome))))) +
     ylab("NRAF") + 
     theme(axis.text.x = element_blank(), 
@@ -169,34 +170,45 @@ DATA %>%
         legend.title = element_blank(), 
         panel.border = element_rect(colour = "black", fill = NA, size = 1),
         panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank()) +
+        panel.grid.minor = element_blank(),
+        text = element_text(size = 15)) +
     guides(colour = guide_legend(nrow = 1)) 
 }
 
 plot_baf_grid2 <- function(DATA, SAMPLE){
+x_axis <- DATA %>%
+    group_by(chromosome) %>%
+    summarise(variant.id = median(variant.id)) %>%
+    mutate(chromosome = str_remove(chromosome, "^0"))
+
 DATA %>%
     ggplot(aes_string(x = "variant.id", y = SAMPLE, colour = "chromosome")) + # use aes string so that we can paste the str in from the function arguments - passing the sample in not as a string does not work
-    geom_point() +
+    geom_point(size = 1) +
     scale_colour_manual(values = c(rep_len(c("#404788FF", "#1F968BFF"), length(unique(baf_df$chromosome))))) +
     ylab("NRAF") + 
-    theme(axis.text.x = element_blank(), 
-        axis.ticks.x = element_blank(), 
-        legend.position = "bottom", 
+    xlab("Chromosome") +
+    theme(legend.position = "none", 
         legend.title = element_blank(), 
         panel.border = element_rect(colour = "black", fill = NA, size = 1),
         panel.grid.major = element_blank(),
-        panel.grid.minor = element_blank()) +
-    guides(colour = guide_legend(nrow = 1))
+        panel.grid.minor = element_blank(),
+        text = element_text(size = 15),
+        plot.title = element_text(hjust = 0.5)) +
+    guides(colour = guide_legend(nrow = 1)) +
+    scale_x_continuous(breaks = x_axis$variant.id, labels = x_axis$chromosome)
 }
 
-ERR985395 <- plot_baf_grid(baf_df, "ERR985395") + scale_x_continuous(name = "Fws=54", position = "top") 
-ERR985405 <- plot_baf_grid(baf_df, "ERR985405") + scale_x_continuous(name = "Fws=62", position = "top") 
-ERR2214850 <- plot_baf_grid(baf_df, "ERR2214850") + scale_x_continuous(name = "Fws=72", position = "top") 
-ERR985417 <- plot_baf_grid(baf_df, "ERR985417") + scale_x_continuous(name = "Fws=84", position = "top") 
-ERR985376 <- plot_baf_grid(baf_df, "ERR985376") + scale_x_continuous(name = "Fws=93", position = "top") 
+
+
+# Figure in manuscript
+ERR985395 <- plot_baf_grid(baf_df, "ERR985395") + scale_x_continuous(name = "ERR985395 (Fws 0.54)", position = "top") 
+ERR985405 <- plot_baf_grid(baf_df, "ERR985405") + scale_x_continuous(name = "ERR985405 (Fws 0.62)", position = "top") 
+ERR2214850 <- plot_baf_grid(baf_df, "ERR2214850") + scale_x_continuous(name = "ERR2214850 (Fws 0.72)", position = "top") 
+ERR985417 <- plot_baf_grid(baf_df, "ERR985417") + scale_x_continuous(name = "ERR985417 (Fws 0.84)", position = "top") 
+ERR985376 <- plot_baf_grid(baf_df, "ERR985376") + scale_x_continuous(name = "ERR985376 (Fws 0.93)", position = "top") 
 PK_SB_DNA_004 <- baf_df %>% 
     rename(PK_SB_DNA_004 = "PK_SB_DNA_004_DKDL210002133-1a_HWHGKDSXY_L4") %>% 
-    plot_baf_grid(., "PK_SB_DNA_004") + scale_x_continuous(name = "Fws=99", position = "top") 
+    plot_baf_grid(., "PK_SB_DNA_004") + scale_x_continuous(name = "PK_SB_DNA_004 (Fws 0.99)", position = "top") 
 
 grid_plot <- grid.arrange(nrow = 3,
     ERR985395,
@@ -210,3 +222,28 @@ grid_plot <- grid.arrange(nrow = 3,
 ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/MAF-Fws_plots/grid_plot.png", width = 12, height = 10, dpi = 600, grid_plot)
 
 
+# Figure in Sup
+
+fws_high <- read_tsv("moimix/fws_MOI.tsv") %>% filter(Proportion < 0.95)
+
+
+baf_df <- baf_df %>% 
+    rename_at(vars(starts_with("PK_SB_DNA")), ~str_remove(., "_DKD.*")) 
+
+nraf_plots <- list()
+
+for (i in pull(fws_high, Sample)){
+    name <- str_remove(paste0(i), "_DK.*")
+
+    Fws <- fws_high %>% filter(Sample == paste0(i)) %>% pull(Proportion) %>% round(2)
+    
+    nraf_plots[[name]]<- plot_baf_grid2(baf_df, paste0(name)) + 
+        ggtitle(paste0(name, " (Fws ", Fws, ")"))
+}
+
+grid_plot <- arrangeGrob(
+    grobs = nraf_plots,
+    ncol = 3
+)
+
+ggsave("/g/data/pq84/malaria/Pk_Malaysian_Population_Genetics/outputs/05_Analyses/MAF-Fws_plots/grid_plot_sup2.png", width = 16, height = 30, dpi = 300, grid_plot)
